@@ -1,0 +1,182 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(Repitools)
+library(tidyverse)
+library(cowplot)
+library(reshape2)
+theme_set(theme_cowplot())
+```
+
+
+
+```{r}
+
+# load file of all ACRs called in each sample
+dfpeaks <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+
+
+# load all joined ACRs 
+dfACRs <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_allpeaks_2perspecies_reduced.csv")
+
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+overlap_fun <- function(PI_num) {
+    # filter for ACRs from all samples from the current Accession 
+  dfPI <- dfpeaks %>% filter(Accession==dfPIs[PI_num,])
+
+
+    # join all overlapping ACRs
+  grpi <- makeGRangesFromDataFrame(dfPI)
+    # make into GRobject as well to overlap
+  gracr <- makeGRangesFromDataFrame(dfACRs)
+
+    # find overlap between Accession joined ACRs and genus wide joined ACRs
+  ol <- findOverlaps(grpi, gracr)
+  dfol <- as.data.frame(ol)
+
+    # return dataframe of PI and presence absence for each in current Accession
+  dfPIs_tmp[,PI_num] <- as.integer(dfACRs$peak_name %in% dfol$subjectHits)
+  test <- as.integer(dfACRs$peak_name %in% dfol$subjectHits)
+  #return(dfPIs_tmp)
+  return(test)
+}
+
+
+# get all Accession of a species
+dfPIs <- dfpeaks %>% filter(species=="caudatus") %>% distinct(Accession)
+
+# loop through Accessions
+result <- lapply(1:4, overlap_fun)
+
+# make into dataframe
+dfspecies_PIs <- as.data.frame(result)
+colnames(dfspecies_PIs) <- dfPIs$Accession
+
+# add ACR IDs
+dfcau_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+# save matrix
+#write_csv(dfcau_PIs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_caudatus.csv")
+
+
+
+# get all Accession of a species
+dfPIs <- dfpeaks %>% filter(species=="cruentus") %>% distinct(Accession)
+
+# loop through Accessions
+result <- lapply(1:3, overlap_fun)
+
+# make into dataframe
+dfspecies_PIs <- as.data.frame(result)
+colnames(dfspecies_PIs) <- dfPIs$Accession
+
+# add ACR IDs
+dfcru_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+# save matrix
+#write_csv(dfcru_PIs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_cruentus.csv")
+
+
+
+# get all Accession of a species
+dfPIs <- dfpeaks %>% filter(species=="hypochondriacus") %>% distinct(Accession)
+
+# loop through Accessions
+result <- lapply(1:4, overlap_fun)
+
+# make into dataframe
+dfspecies_PIs <- as.data.frame(result)
+colnames(dfspecies_PIs) <- dfPIs$Accession
+
+# add ACR IDs
+dfhyp_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+# save matrix
+#write_csv(dfhyp, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hypochondriacus.csv")
+
+
+
+# get all Accession of a species
+dfPIs <- dfpeaks %>% filter(species=="hybridus") %>% distinct(Accession)
+
+# loop through Accessions
+result <- lapply(1:3, overlap_fun)
+
+# make into dataframe
+dfspecies_PIs <- as.data.frame(result)
+colnames(dfspecies_PIs) <- dfPIs$Accession
+
+# add ACR IDs
+dfhyb_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+# save matrix
+#write_csv(dfhyb_PIs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hybridus.csv")
+
+
+
+# get all Accession of a species
+dfPIs <- dfpeaks %>% filter(species=="quitensis") %>% distinct(Accession)
+
+# loop through Accessions
+result <- lapply(1:4, overlap_fun)
+
+# make into dataframe
+dfspecies_PIs <- as.data.frame(result)
+colnames(dfspecies_PIs) <- dfPIs$Accession
+
+# add ACR IDs
+dfqui_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+# save matrix
+#write_csv(dfqui_PIs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_quitensis.csv")
+
+```
+
+
+```{r}
+
+dfcau_PIs2 <- dfcau_PIs %>% mutate(freq = (rowSums(dplyr::select(., PI490612:PI608019) == 1))/4)
+dfcru_PIs2 <- dfcru_PIs %>% mutate(freq = (rowSums(dplyr::select(., PI511717:PI511714) == 1))/3)
+dfhyp_PIs2 <- dfhyp_PIs %>% mutate(freq = (rowSums(dplyr::select(., PI558499:PI604581) == 1))/4)
+dfhyb_PIs2 <- dfhyb_PIs %>% mutate(freq = (rowSums(dplyr::select(., PI511754:PI490489) == 1))/3)
+dfqui_PIs2 <- dfqui_PIs %>% mutate(freq = (rowSums(dplyr::select(., PI490466:PI511745) == 1))/4)
+
+
+# dACRs open in hyb, closed in cau
+hybcau_ACR <- dfhyb_PIs2 %>% dplyr::select(peak_name, freq) %>% left_join(dfcau_PIs2, by="peak_name") %>% filter(freq.x==1, freq.y==0)
+# dACRs closed in hyb, open in cau
+cau_ACR <- dfhyb_PIs2 %>% dplyr::select(peak_name, freq) %>% left_join(dfcau_PIs2, by="peak_name") %>% filter(freq.x==0, freq.y==1)
+
+
+# dACRs open in hyb, closed in cau
+hybcru_ACR <- dfhyb_PIs2 %>% dplyr::select(peak_name, freq) %>% left_join(dfcru_PIs2, by="peak_name") %>% filter(freq.x==1, freq.y==0)
+# dACRs closed in hyb, open in cau
+cru_ACR <- dfhyb_PIs2 %>% dplyr::select(peak_name, freq) %>% left_join(dfcru_PIs2, by="peak_name") %>% filter(freq.x==0, freq.y==1)
+
+
+# dACRs open in hyb, closed in cau
+hybhyp_ACR <- dfhyb_PIs2 %>% dplyr::select(peak_name, freq) %>% left_join(dfhyp_PIs2, by="peak_name") %>% filter(freq.x==1, freq.y==0)
+# dACRs closed in hyb, open in cau
+hyp_ACR <- dfhyb_PIs2 %>% dplyr::select(peak_name, freq) %>% left_join(dfhyp_PIs2, by="peak_name") %>% filter(freq.x==0, freq.y==1)
+
+
+# save dACRs
+dfj1 <- hybcau_ACR %>% dplyr::select(c("peak_name", "chr", "start", "end", "length")) %>% mutate(dACR="hybcau")
+dfj2 <- cau_ACR %>% dplyr::select(c("peak_name", "chr", "start", "end", "length")) %>% mutate(dACR="cau")
+dfj3 <- hybcru_ACR %>% dplyr::select(c("peak_name", "chr", "start", "end", "length")) %>% mutate(dACR="hybcru")
+dfj4 <- cru_ACR %>% dplyr::select(c("peak_name", "chr", "start", "end", "length")) %>% mutate(dACR="cru")
+dfj5 <- hybhyp_ACR %>% dplyr::select(c("peak_name", "chr", "start", "end", "length")) %>% mutate(dACR="hybhyp")
+dfj6 <- hyp_ACR %>% dplyr::select(c("peak_name", "chr", "start", "end", "length")) %>% mutate(dACR="hyp")
+
+dfall_dACRs <- rbind(dfj1, dfj2, dfj3, dfj4, dfj5, dfj6)
+
+#write_csv(dfall_dACRs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/all_dACRs.csv")
+
+```
+
