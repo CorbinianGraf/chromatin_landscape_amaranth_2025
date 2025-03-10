@@ -1,0 +1,191 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r load libraries}
+
+library(tidyverse)
+library(reshape2)
+library(cowplot)
+theme_set(theme_cowplot())
+library(rtracklayer)
+library(data.table)
+library(khroma)
+
+```
+
+######   peak depth & methylation up and downstream of TSS
+
+### prepare peaks
+
+```{r}
+
+## prepare OCR data
+
+setwd("~/Documents/projects/ATAC_seq/data")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+dfpeaks %>% distinct(Accession)
+
+library(GenomicRanges)
+GRref <- makeGRangesFromDataFrame(dfpeaks)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref <- reduce(GRref)
+
+(3.72+4.89)/2
+genome_fraction <- as.data.frame(GRref)
+sum(genome_fraction$width)/403994491
+
+library(tidyverse)
+
+dfref <- as.data.frame(GRref)
+
+## prepare annotations
+
+setwd("~/Documents/projects/ATAC_seq/data/ref_genomes")
+gff_ref <- import.gff("Ahypochondriacus_v3_chrX.gff")
+dfgffref=as.data.frame(gff_ref)
+
+dfgffref=as.data.frame(gff_ref)
+dfgffref <- dfgffref %>% filter(str_detect(type, "gene")) %>% mutate(pstart=start-2000, pend=start+2000, pwidth=pend-pstart) %>% dplyr::select(-c(start, end, width)) 
+
+# gene names to rownames 
+rownames(dfgffref) <- dfgffref$ID
+# make modified ref genome into dataframe
+annoData2 <- makeGRangesFromDataFrame(dfgffref)
+
+
+
+# annotate peaks
+ol.anno2 <- annotatePeakInBatch(GRref, AnnotationData = annoData2, output="overlapping", maxgap=0)
+
+library(Repitools)
+library(tidyverse)
+# replace genome start and end positions of peaks with distances to corresponding gene
+prom_peaks <- annoGR2DF(ol.anno2)
+
+prom_peaks <- prom_peaks %>% drop_na() %>% 
+  mutate(pstart=end_position-start, pend=end_position-end) %>% 
+  mutate(pstart=replace(pstart, which(pstart > 4000), 4000)) %>% 
+  mutate(pend=replace(pend, which(pend < 0), 0))
+
+# prepare empty dataframe for depth scores
+peak_depth <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(peak_depth) <- c("position", "depth")
+
+# go through 1:2000 & count how many times it is >= start & <=end
+ # add count as row to dataframe
+for (i in 1:4000) {
+  depth <- prom_peaks %>% count(i<=pstart & i>=pend)
+  peak_depth <- peak_depth %>% add_row(position=i, depth=depth$n[2])
+}
+
+
+# switch position for accuracy in plot
+actual_pos=2000:-1999
+peak_depth <- peak_depth %>% mutate(position=actual_pos)
+head(peak_depth)
+tail(peak_depth)
+peak_depth %>% arrange(desc(depth))
+length(actual_pos)
+```
+
+
+
+
+
+### prepare metyhlation
+
+```{r}
+#dfmeth <- read.table("/Users/corbinian/Documents/projects/ATAC_seq/data/methylation/Plainsman_nickname_unzip.bismark.cov")
+dfmeth <- read.csv("/Users/corbinian/Documents/projects/ATAC_seq/data/methylation/Plainsman_nickname_coveage_filtered.csv")
+#colnames(dfmeth) <- c("chr", "start", "end", "fraction", "yes", "no")
+
+#dfmeth <- dfmeth %>% filter(str_detect(chr, "chr")) %>% mutate(chr=str_replace(chr, "chr_", "chr"), total=yes+no) %>% filter(fraction>=25, total>=5)
+
+#write.csv(dfmeth, "/Users/corbinian/Documents/projects/ATAC_seq/data/methylation/Plainsman_nickname_coveage_filtered.csv")
+
+GRmeth <- makeGRangesFromDataFrame(dfmeth)
+# annotate methylation
+ol.anno3 <- annotatePeakInBatch(GRmeth, AnnotationData = annoData2, output="overlapping", maxgap=0)
+
+library(Repitools)
+library(tidyverse)
+# replace genome start and end positions of peaks with distances to corresponding gene
+prom_meth <- annoGR2DF(ol.anno3)
+
+prom_meth <- prom_meth %>% drop_na() %>% 
+  mutate(pstart=end_position-start, pend=end_position-end) %>% 
+  mutate(pstart=replace(pstart, which(pstart > 4000), 4000)) %>% 
+  mutate(pend=replace(pend, which(pend < 0), 0))
+
+# prepare empty dataframe for depth scores
+meth_depth <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(meth_depth) <- c("position", "depth")
+
+# go through 1:2000 & count how many times it is >= start & <=end
+ # add count as row to dataframe
+for (i in 1:4000) {
+  depth2 <- prom_meth %>% count(i<=pstart & i>=pend)
+  meth_depth <- meth_depth %>% add_row(position=i, depth=depth2$n[2])
+}
+
+
+# switch position for accuracy in plot
+actual_pos=2000:-1999
+meth_depth <- meth_depth %>% mutate(position=actual_pos)
+```
+
+
+
+
+### plot
+
+```{r}
+#peak_depth %>% ggplot(aes(x=position, y=depth)) + geom_point()
+#write_csv(peak_depth, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/peak_depth_near_TSS")
+#write_csv(meth_depth, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/meth_depth_near_TSS")
+
+scale_factor <- max(peak_depth$depth)/max(meth_depth$depth)
+
+peak_depth %>% ggplot(aes(x=position, y=depth)) + geom_line(linewidth=2, colour="black") +
+  geom_line(data=meth_depth, aes(x=position, y=depth*scale_factor), colour="#AAAA00", alpha=0.75) +
+  theme(axis.text.x = element_text(face="bold", size=35, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35)) +
+  scale_y_continuous(name = "OCR coverage",
+                     sec.axis=sec_axis(~ . / scale_factor, name = "Methylation coverage")) +
+  theme(axis.title.y.right = element_text(vjust=1)) +
+  xlab("Distance to TSS (bp)") 
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/meth_and_peak_depth_near_TSS_filtered_line_yellow.pdf", width=17, height=10) 
+
+
+peak_depth %>% ggplot(aes(x=position, y=depth)) + geom_line(linewidth=2, colour="black") +
+  #geom_line(data=meth_depth, aes(x=position, y=depth*scale_factor), colour="turquoise", alpha=0.75) +
+  stat_smooth(data=meth_depth, aes(x=position, y=depth*scale_factor, size=1), formula = y ~ s(x, k = 1000), method = "gam", se = FALSE, colour="#AAAA00") +
+  theme(axis.text.x = element_text(face="bold", size=35, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35)) +
+  scale_y_continuous(name = "OCR coverage",
+                     sec.axis=sec_axis(~ . / scale_factor, name = "Methylation coverage")) +
+  theme(axis.title.y.right = element_text(vjust=1)) +
+  xlab("Distance to TSS (bp)") 
+
+
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/meth_and_peak_depth_near_TSS_filtered_smooth1000_line1_yellow.pdf", width=17, height=10) 
+```
+

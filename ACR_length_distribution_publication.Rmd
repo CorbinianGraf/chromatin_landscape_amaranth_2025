@@ -1,0 +1,48 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+# load libraries
+
+```{r}
+
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+
+```
+
+
+# peak length histogram
+
+```{r}
+
+# prepare data 
+dfpeaks <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+
+dfref_l <- dfref %>% filter(str_detect(tissue, "leaf"))
+dfref_s <- dfref %>% filter(str_detect(tissue, "seedling"))
+
+dfref_histo_l <- dfref_l %>% transmute(tissue="leaf", peak_length=length)
+dfref_histo_s <- dfref_s %>% transmute(tissue="seedling", peak_length=length)
+
+histo <- rbind(dfref_histo_l, dfref_histo_s)
+
+# plot
+
+histo %>% ggplot(aes(x=peak_length, fill=tissue)) + geom_density(alpha=0.5) + xlim(0,4000) +
+    theme(axis.text.x = element_text(face="bold", size=24, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(size=24, angle=45, hjust=1),
+        axis.title=element_text(size=35,face="bold"),
+        axis.text.y = element_text(face="bold", size=24)) + 
+  guides(fill=guide_legend(title="tissues")) + 
+  theme(legend.title=element_text(size=40), legend.text=element_text(size=35)) +
+    xlab("ACR length") +
+  ylab("Density")
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/peak_size_density_nowgs.png", width=15, height=10) 
+
+
+
+```
