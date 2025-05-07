@@ -1,0 +1,568 @@
+---
+title: "analyse_isoseq_data"
+author: "TW"
+date: "2024-01-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(data.table)
+```
+
+
+Analyse isoseq data post collapse without filtering
+
+```{r}
+# read in data
+# dataset new in version 3
+post_collapse_unfiltered_v3 <- read_table(file = "../../data/isoseq/v3/combined.collapsed.simple_stats.txt")
+post_collapse_unfiltered_v3 <- post_collapse_unfiltered_v3 %>%
+  mutate(pbid = paste0(pbid, ".v3"),
+         dataset = "v3")
+summary(post_collapse_unfiltered_v3)
+
+# dataset used in version 2
+post_collapse_unfiltered_v2 <- read_table(file = "../../data/isoseq/v2/combined.collapsed.simple_stats.txt")
+post_collapse_unfiltered_v2 <- post_collapse_unfiltered_v2 %>%
+  mutate(pbid = paste0(pbid, ".v2"),
+         dataset = "v2")
+summary(post_collapse_unfiltered_v2)
+
+post_collapse_uf <- rbind(post_collapse_unfiltered_v2, post_collapse_unfiltered_v3)
+
+# read in data
+abundance_uf_v3 <- read_table(file = "../../data/isoseq/v3/combined.collapsed.abundance.txt",
+                           skip = 9,
+                           col_names = c("pbid", "count_fl", "norm_fl"),
+                           comment = "#")
+abundance_uf_v3 <- abundance_uf_v3 %>%
+  mutate(pbid = paste0(pbid, ".v3"),
+         dataset = "v3")
+summary(abundance_uf_v3)
+
+abundance_uf_v2 <- read_table(file = "../../data/isoseq/v2/combined.collapsed.abundance.txt",
+                           skip = 9,
+                           col_names = c("pbid", "count_fl", "norm_fl"),
+                           comment = "#")
+abundance_uf_v2 <- abundance_uf_v2 %>%
+  mutate(pbid = paste0(pbid, ".v2"),
+         dataset = "v2")
+summary(abundance_uf_v2)
+
+abundance_uf <- rbind(abundance_uf_v2, abundance_uf_v3)
+```
+
+
+Analyse isoseq data post collapse, data filtered for min fl read count = 5:
+
+```{r}
+# read in data
+# dataset new in version 3
+post_collapse_v3 <- read_table(file = "../../data/isoseq/v3/combined.collapsed.min_fl_2.filtered.simple_stats.txt")
+post_collapse_v3 <- post_collapse_v3 %>%
+  mutate(pbid = paste0(pbid, ".v3"),
+         dataset = "v3")
+summary(post_collapse_v3)
+
+# dataset used in version 2
+post_collapse_v2 <- read_table(file = "../../data/isoseq/v2/combined.collapsed.min_fl_2.filtered.simple_stats.txt")
+post_collapse_v2 <- post_collapse_v2 %>%
+  mutate(pbid = paste0(pbid, ".v2"),
+         dataset = "v2")
+summary(post_collapse_v2)
+
+post_collapse <- rbind(post_collapse_v2, post_collapse_v3)
+
+# exclude single exon genes
+multiexon <- post_collapse %>%
+  filter(num_exon > 1)
+
+```
+
+Plot transcript metrics
+
+```{r}
+# plot transcript length
+p_length <- ggplot(data = post_collapse) +
+  geom_density(aes(x = length,
+                   color = dataset), 
+               linewidth = 1) +
+  labs(y = "Density", 
+       x = "Transcript length [bp]",
+       color = "Dataset") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+p_length
+
+ggsave(filename = "../../plots/isoseq/isoseq_transcript_length.png",
+       plot = p_length,
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+
+# plot exon count
+p_exon_count <- ggplot(data = post_collapse) +
+  geom_bar(aes(x = num_exon,
+               fill = dataset),
+           position = "dodge") +
+  labs(y = "Transcript count", 
+       x = "Exons per transcript",
+       fill = "Dataset") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+p_exon_count
+
+ggsave(filename = "../../plots/isoseq/isoseq_exon_count.png",
+       plot = p_exon_count,
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+```
+
+Investigate distribution of transcript abundances:
+
+```{r}
+# read in data
+abundance_v3 <- read_table(file = "../../data/isoseq/v3/combined.collapsed.min_fl_2.filtered.abundance.txt",
+                           skip = 9,
+                           col_names = c("pbid", "count_fl", "norm_fl", "empty"),
+                           comment = "#")
+abundance_v3 <- abundance_v3 %>%
+  mutate(pbid = paste0(pbid, ".v3"),
+         dataset = "v3")
+summary(abundance_v3)
+
+abundance_v2 <- read_table(file = "../../data/isoseq/v2/combined.collapsed.min_fl_2.filtered.abundance.txt",
+                           skip = 9,
+                           col_names = c("pbid", "count_fl", "norm_fl", "empty"),
+                           comment = "#")
+abundance_v2 <- abundance_v2 %>%
+  mutate(pbid = paste0(pbid, ".v2"),
+         dataset = "v2")
+summary(abundance_v2)
+
+abundance <- rbind(abundance_v2, abundance_v3)
+
+# sum of fl counts, after filtering!
+abundance %>%
+  group_by(dataset) %>%
+  summarise(count_sum = sum(count_fl),
+            count_mean = mean(count_fl),
+            count_median = median(count_fl))
+
+# plot read count distribution
+count_support_plot <- ggplot(data = abundance) +
+  geom_density(aes(x = count_fl,
+                   color = dataset),
+               stat = "count",
+               linewidth = 1) +
+  labs(y = "Transcript count", 
+       x = "CCS read count",
+       color = "Dataset") +
+  coord_cartesian(xlim = c(0, 100)) +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+count_support_plot
+
+ggsave(filename = "../../plots/isoseq/isoseq_count_histogram.png",
+       plot = count_support_plot,
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+```
+
+Chain samples together:
+
+```{bash}
+# chain samples
+chain_samples.py --max_3_diff 300 --fuzzy_junction 5 --cpus 6 data/merged_isoseq/chaining_config.txt count_fl
+# move output to correct outdir
+mv all_samples.chained* data/merged_isoseq/
+```
+
+
+Investigate transcript support abundance after chaining samples together
+
+```{r}
+# sample chaining read in data
+chaining <- read_table(file = "../../data/merged_isoseq/all_samples.chained_count.txt")
+
+# total number of transcripts
+nrow(chaining)
+length(unique(sub("\\.\\d$", "", chaining$superPBID)))
+
+
+# add column to indicate support
+chaining <- chaining %>%
+  mutate(support = ifelse(is.na(version2), "version3", ifelse(is.na(version3), "version2", "both")))
+
+# support for chained transcripts from the two datasets
+table(chaining$support)
+
+# Barplot on dataset support
+chaining_support_plot <- ggplot(data = chaining) +
+  geom_bar(aes(x = support,
+               fill = support),
+           stat = "count") +
+  labs(title = "Before SQANTI filter",
+       y = "Transcript count", 
+       x = "",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+chaining_support_plot
+
+ggsave(filename = "../../plots/isoseq/chaining_support_categories.png",
+       plot = chaining_support_plot,
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+
+# read support plot
+total_support <- chaining %>%
+  mutate(version2 = replace_na(version2, 0),
+         version3 = replace_na(version3, 0)) %>%
+  mutate(total_count = version2 + version3)
+
+# general summary
+summary(total_support$total_count)
+
+# look at specific locus
+total_support[grep("23021", total_support$superPBID),]
+
+# summarise support per group
+total_support %>%
+  group_by(support) %>%
+  summarize(
+    total_count_min = min(total_count),
+    total_count_1st_quartile = quantile(total_count, 0.25),
+    total_count_median = median(total_count),
+    total_count_mean = mean(total_count),
+    total_count_3rd_quartile = quantile(total_count, 0.75),
+    total_count_max = max(total_count),
+    .groups = 'drop'  # Dropping the grouping structure from the result
+  )
+
+
+
+# everything
+ggplot(data = total_support) +
+  geom_bar(aes(x = total_count,
+               fill = support),
+           color = "black") +
+  coord_cartesian(xlim = c(0,30)) +
+    labs(title = "Read support",
+       y = "Transcript count", 
+       x = "CCS read count",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+# minimum 10 supporting reads
+ggplot(data = total_support %>% filter(total_count >= 5)) +
+  geom_bar(aes(x = total_count,
+               fill = support),
+           color = "black") +
+  coord_cartesian(xlim = c(0,30)) +
+    labs(title = "Read support",
+       y = "Transcript count", 
+       x = "CCS read count",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+```
+
+More detailed look at isoforms from the same locus
+
+```{r}
+# isoform per locus summary
+locus_summary <- total_support %>%
+  mutate(locus = sub("\\.(?:(?!\\.).)+$","", superPBID, perl = T)) %>%
+  group_by(locus) %>%
+  mutate(fraction = total_count / sum(total_count)) %>%
+  ungroup()
+
+# plot fraction of reads per locus that go to different support categories
+ggplot(data = locus_summary) +
+  geom_boxplot(aes(x = support,
+                   y = fraction))
+
+# proposed filter settings:
+ggplot(data = locus_summary %>% filter(total_count >= 5, fraction >= 0.05)) +
+  geom_bar(aes(x = total_count,
+               fill = support),
+           color = "black") +
+  coord_cartesian(xlim = c(0,30)) +
+    labs(title = "Read support",
+       y = "Transcript count", 
+       x = "CCS read count",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+```
+
+
+
+Run SQANTI
+
+```{bash}
+# Run sqanti:
+#conda activate SQANTI3.env
+export PYTHONPATH=$PYTHONPATH:/home/tom/Documents/tools/cDNA_Cupcake/sequence/
+/home/tom/Documents/tools/SQANTI3-5.2/sqanti3_qc.py data/merged_isoseq/all_samples.chained.gff data/braker/prot_rna_braker3/fixed_braker.gtf data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta -d data/merged_isoseq/sqanti/ -c data/STAR/STAR_mappings/ -n 6
+```
+
+
+SQANTI transcript classification:
+
+```{r}
+# read in classification:
+classification <- read_delim(file = "../../data/merged_isoseq/sqanti/all_samples.chained_classification.txt",
+                             delim = "\t")
+
+# check how many sequences have features of bad quality
+table(classification$predicted_NMD)
+table(classification$RTS_stage)
+hist(classification$perc_A_downstream_TTS)
+classification[classification$perc_A_downstream_TTS > 60, "seq_A_downstream_TTS"]
+
+# histogram per structural category
+perc_classification <- classification %>%
+  group_by(structural_category,
+           perc_A_downstream_TTS) %>%
+  reframe(n = n()) %>%
+  group_by(structural_category) %>%
+  mutate(freq = n / sum(n))
+
+# plot structural categories
+ggplot(data=perc_classification %>% filter(structural_category != "genic_intron")) +
+  geom_col(aes(x = perc_A_downstream_TTS,
+               y = freq,
+               fill = structural_category),
+           position = "dodge") +
+  theme_classic() +
+  labs(x = "Percent A downstream TTS",
+       y = "Frequency",
+       fill = "Structural category") +
+  #scale_fill_brewer(palette = "Set1") +
+  #scale_fill_viridis_d() +
+  theme(text = element_text(size = 17),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../../plots/isoseq/sqanti_downstream_A_TTS.png",
+       width = 8,
+       height = 5,
+       dpi = 450)
+```
+
+SQANTI filtering:
+
+```{r}
+# join sqanti classification with count information
+joined_classification <- left_join(classification, locus_summary, by = c("isoform" = "superPBID"))
+
+# how many FSM?
+joined_classification %>%
+  filter(structural_category == "full-splice_match") %>%
+  nrow()
+
+# filter for FSM, otherwise at least 5 reads and at least 5 % of all reads per locus
+filtered_isoforms <- joined_classification %>%
+  filter(structural_category == "full-splice_match" | (total_count >= 5 & fraction >= 0.05))
+
+length(filtered_isoforms$locus)
+length(unique(filtered_isoforms$locus))
+
+table(filtered_isoforms$support)
+
+# plot counts
+ggplot(data = filtered_isoforms) +
+  geom_bar(aes(x = total_count,
+               fill = support),
+           color = "black") +
+  coord_cartesian(xlim = c(0,30)) +
+    labs(title = "Read support",
+       y = "Transcript count", 
+       x = "CCS read count",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../../plots/isoseq/filtered_transcript_counts.png",
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+
+
+# plot number per structural category
+ggplot(data = filtered_isoforms) +
+  geom_bar(aes(x = structural_category,
+               fill = support),
+           color = "black") +
+    labs(title = "Support per category",
+       y = "Transcript count", 
+       x = "",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 20),
+        axis.text = element_text(color = "black"),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+# low predicted NMD and RTS switching
+table(filtered_isoforms$predicted_NMD)
+table(filtered_isoforms$RTS_stage)
+# possible intra-priming
+ggplot(data = filtered_isoforms) +
+  geom_bar(aes(x = perc_A_downstream_TTS,
+               fill = support),
+           color = "black") +
+  theme_classic() +
+    labs(y = "Transcript count",
+         x = "Percent A downstream TTS",
+         fill = "Supported by") +
+  theme(text = element_text(size = 20),
+                axis.text = element_text(color = "black"))
+
+ggsave(filename = "../../plots/isoseq/downstream_A_after_filtering_support.png",
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+
+# possible intra-priming
+ggplot(data = filtered_isoforms) +
+  geom_bar(aes(x = perc_A_downstream_TTS,
+               fill = structural_category),
+           color = "black") +
+  theme_classic() +
+  labs(y = "Transcript count",
+       x = "Percent A downstream TTS",
+       fill = "Structural category") +
+  theme(text = element_text(size = 20),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../../plots/isoseq/downstream_A_after_filtering_category.png",
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+
+# write table for filtering of SQANTI output:
+write.table(x = filtered_isoforms$isoform,
+            file = "../../data/merged_isoseq/sqanti/isoforms_to_filter.txt",
+            quote = F,
+            row.names = F,
+            col.names = F)
+```
+
+Annotate AmMYBl1 correctly
+
+```{bash}
+# get AmMYBl1 fasta
+grep -A13 "AHp014591" ../Ahyp_v2_2/polished_genome_annotation/annotation/Ahypochondriacus_2.2_polished_corrected.cds.fasta > data/merged_isoseq/sqanti/gmst/AmMYBl1.fasta 
+
+# map AmMYBl1 sequence against the reference genome
+/home/tom/Documents/tools/minimap2/minimap2 -x splice:hq -a -t 6 data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta data/merged_isoseq/sqanti/gmst/AmMYBl1.fasta | samtools view -b -h - > data/merged_isoseq/sqanti/gmst/manual_AmMYBl1.bam
+
+samtools index data/merged_isoseq/sqanti/gmst/manual_AmMYBl1.bam
+
+# extract AmMYBl1 protein fasta to compare with previous version
+/home/tom/Documents/tools/gffread-0.12.7/gffread -g data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta -x data/merged_isoseq/sqanti/gmst/manual_AmMYBl1.prot.fasta data/merged_isoseq/sqanti/gmst/manual_AmMYBl1.gtf
+```
+
+
+Filter isoforms, predict ORFs
+
+```{bash}
+# grep by sequence name, from file
+seqkit grep -n -f data/merged_isoseq/sqanti/isoforms_to_filter.txt data/merged_isoseq/sqanti/all_samples.chained_corrected.fasta > data/merged_isoseq/sqanti/all_samples.chained_corrected.filtered.fasta
+
+# subset gtf file
+awk '{print "transcript_id \"" $0 "\";"}' data/merged_isoseq/sqanti/isoforms_to_filter.txt | grep -Ff - data/merged_isoseq/sqanti/all_samples.chained_corrected.gtf > data/merged_isoseq/sqanti/all_samples.chained_corrected.filtered.gtf
+
+# to prepare merge with TSEBRA, prepare GMST ORF prediction
+# make outdir
+mkdir -p data/merged_isoseq/sqanti/gmst
+# Predict ORFs:
+/home/tom/Documents/tools/gmst/gmst.pl --strand direct data/merged_isoseq/sqanti/all_samples.chained_corrected.filtered.fasta --output data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.gff -faa --format GFF
+
+mv GeneMark_hmm.mod  data/merged_isoseq/sqanti/gmst/
+mv gms.log  data/merged_isoseq/sqanti/gmst/
+
+# Convert to global coordinates:
+code/assemble_isoseq/gmst2globalCoords.py -t data/merged_isoseq/sqanti/all_samples.chained_corrected.gtf -p data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.gff -g data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta -o data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.global.gtf
+
+# Check BUSCO score:
+busco -m protein -i data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.gff.faa -o sqanti_filtered_busco -l embryophyta_odb10 --out_path data/merged_isoseq/sqanti/ --download_path ../Ahyp_v2_2/data/annotation_analysis/busco/datasets/ -c 7
+```
+
+
+Investigate the effect of transcript filtering on read support:
+
+```{r}
+# chaining info file
+filtered_chaining <- total_support %>%
+  filter(superPBID %in% filtered_isoforms$isoform)
+
+# support for chained transcripts from the two datasets
+table(filtered_chaining$support)
+
+# Barplot on read support
+filtered_chaining_support_plot <- ggplot(data = filtered_chaining) +
+  geom_bar(aes(x = support,
+               fill = support),
+           stat = "count", color = "black") +
+  labs(title = "After filtering",
+       y = "Transcript count", 
+       x = "",
+       fill = "Support") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+filtered_chaining_support_plot
+
+ggsave(filename = "../../plots/isoseq/filtered_chaining_support_categories.png",
+       plot = filtered_chaining_support_plot,
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 6)
+```
+
+Run TSEBRA:
+
+```{bash}
+# run TSEBRA
+mkdir data/TSEBRA
+# change source and add AmMYBl1
+awk -F"\t" 'BEGIN {OFS=FS} {$2 = "IsoSeq"; print}' data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.global.gtf > data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.global.source.gtf
+# add AmMYBl1 to the dataset
+cat data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.global.source.gtf data/merged_isoseq/sqanti/gmst/manual_AmMYBl1.gtf > data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.global.source.manual.gtf
+
+# TSEBRA
+/home/tom/Documents/tools/TSEBRA/bin/tsebra.py -g data/braker/prot_rna_braker3/braker.gtf -e data/braker/prot_rna_braker3/hintsfile.gff -l data/merged_isoseq/sqanti/gmst/all_samples.chained_corrected.gmst.global.source.manual.gtf -kl -c /home/tom/Documents/tools/TSEBRA/config/long_reads.cfg -o data/TSEBRA/braker3_isoseq_combined.gtf
+
+# process TSEBRA output:
+# read in using gffread:
+/home/tom/Documents/tools/gffread-0.12.7/gffread -M -K -T -d data/TSEBRA/duplication_info.txt data/TSEBRA/braker3_isoseq_combined.gtf > data/TSEBRA/braker3_isoseq_combined.dedup.gtf 2> data/TSEBRA/braker3_isoseq_combined.error
+# convert to gff
+/home/tom/Documents/tools/gffread-0.12.7/gffread -v --keep-genes data/TSEBRA/braker3_isoseq_combined.dedup.gtf > data/TSEBRA/braker3_isoseq_combined.dedup.gff
+# extract cds and protein fasta
+/home/tom/Documents/tools/gffread-0.12.7/gffread -x data/TSEBRA/braker3_isoseq_combined.dedup.cds.fasta -y data/TSEBRA/braker3_isoseq_combined.dedup.prot.fasta -g data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta data/TSEBRA/braker3_isoseq_combined.dedup.gtf
+# run busco to check completeness
+busco -m protein -i data/TSEBRA/braker3_isoseq_combined.dedup.prot.fasta -o busco_dedup -l embryophyta_odb10 --out_path data/TSEBRA/ --download_path ../Ahyp_v2_2/data/annotation_analysis/busco/datasets/ -c 6
+```
+
+
+
+
+
+
+

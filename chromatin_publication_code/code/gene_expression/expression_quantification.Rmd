@@ -1,0 +1,55 @@
+---
+title: "expression_quantification"
+author: "TW"
+date: "2024-05-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DESeq2)
+library(factoextra)
+library(patchwork)
+library(reshape2)
+```
+
+
+Read in kallisto gene expression quantification:
+
+```{r}
+# vector of input directories
+sample_names <- dir(path = "../../../data/functional_annotation/gene_expression/kallisto/")
+sample_names <- sample_names[-which(sample_names == "index")]
+
+# read in tables
+kallisto_quant <- c()
+
+for (i in 1:length(sample_names)){
+  x <- read_table(file = paste0("../../../data/functional_annotation/gene_expression/kallisto/",
+                                sample_names[i],
+                                "/abundance.tsv"))
+  # set column names and keep relevant columns
+  x <- x %>%
+    summarise(transcript_id = target_id,
+              tpm = tpm,
+              est_counts = est_counts,
+              tissue = sample_names[i])
+  # save in kallisto_quant
+  kallisto_quant <- rbind(kallisto_quant, x)
+}
+kallisto_quant$tissue <- as.factor(kallisto_quant$tissue)
+
+# quick quality control, that each bulk has the correct number of transcripts
+kallisto_quant %>%
+  group_by(tissue) %>%
+  tally()
+
+# add gene id column to table
+kallisto_quant <- kallisto_quant %>%
+  mutate(gene_id = substr(transcript_id, 1, 9))
+
+# write results to csv
+write_tsv(kallisto_quant,
+          file = "../../../data/functional_annotation/gene_expression/kallisto/all_tissue_expression.csv")
+```

@@ -1,0 +1,241 @@
+---
+title: "rename_annotation"
+author: "TW"
+date: "2024-05-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(data.table)
+library(GenomicRanges)
+library(GenomicFeatures)
+library(seqinr)
+```
+
+Set up functions
+
+```{r}
+# set up function for reading in a gtf file
+read.gtf <- function(file){
+  # based on: https://www.biostars.org/p/272889/
+  # read in the gtf file:
+  gff <- fread(file)
+  setnames(gff, names(gff), c("chr","source","type","start","end","score","strand","phase","attributes"))
+  # subset attribute column into the gene and transcript id columns
+  # function for extracting the two attributes
+  extract_attributes <- function(gtf_column, att_of_interest){
+    att <- strsplit(gtf_column, "; ")
+    att <- gsub("\"","",unlist(att))
+    att <- gsub(";","",unlist(att))
+    if(!is.null(unlist(strsplit(att[grep(att_of_interest, att)], " ")))){
+      return( unlist(strsplit(att[grep(att_of_interest, att)], " "))[2])
+    }else{
+      return(NA)
+    }
+  }
+  # using the function to subset gene and transcript id:
+  gff$gene_id <- unlist(lapply(gff$attributes, extract_attributes, "gene"))
+  gff$transcript_id <- unlist(lapply(gff$attributes, extract_attributes, "transcript"))
+  return(gff)
+}
+
+# part of the read.gtf function
+extract_attributes <- function(gtf_column, att_of_interest){
+    att <- strsplit(gtf_column, "; ")
+    att <- gsub("\"","",unlist(att))
+    att <- gsub(";","",unlist(att))
+    if(!is.null(unlist(strsplit(att[grep(att_of_interest, att)], " ")))){
+      return( unlist(strsplit(att[grep(att_of_interest, att)], " "))[2])
+    } else {
+      return(NA)
+    }
+}
+
+```
+
+Read in TSEBRA annotation, sort and unify gene names. First sort:
+
+```{r}
+# read in the annotation
+tsebra.gtf <- read.gtf("../../data/TSEBRA/braker3_isoseq_combined.dedup.gtf")
+
+# create a mapping from locus the gene id, the locus is only found in rows of the "transcript" type
+transcript_locus_mapping <- tsebra.gtf %>%
+  filter(type == "transcript")
+transcript_locus_mapping$locus <- unlist(lapply(transcript_locus_mapping$attributes, extract_attributes, "locus"))
+transcript_locus_mapping <- transcript_locus_mapping %>%
+  select(transcript_id, locus)
+
+# join locus information into the tsebra dataframe
+tsebra.gtf <- left_join(tsebra.gtf, transcript_locus_mapping)
+
+# save information as RDS
+output <- tsebra.gtf %>%
+  select(source, gene_id, transcript_id, locus)
+saveRDS(output, "../../data/TSEBRA/intermediate_locus.RDS")
+
+
+# create a dataframe indicating the order of the scaffolds and contigs
+names <- sort(unique(tsebra.gtf$chr))
+
+# sort names correctly and add number indicating the order
+names <- names[order(nchar(names), names)]
+order <- 1:(length(names))
+
+# join the created dataframe with the gtf dataframe for sorting
+order.df <- data.frame(names, order)
+tsebra.gtf <- left_join(tsebra.gtf, order.df, by= c("chr" = "names"))
+tsebra.gtf$order2 <- 1:nrow(tsebra.gtf)
+
+# group by gene id and then sort, first by chromosome using the order dataframe, then by start position
+# also keep together all gene transcript ids by sorting by the previous order
+tsebra.gtf.sorted <- tsebra.gtf %>%
+  group_by(transcript_id) %>%
+  arrange(order, order2)
+
+# use only one record per transcript, sort by locus and add number with the number of transcript at that locus
+# to later create the transcript names
+transcript_id <- tsebra.gtf.sorted %>% 
+  filter(type == "transcript") %>% 
+  group_by(locus) %>% 
+  mutate(occ = 1:n()) %>%
+  ungroup() %>%
+  select(transcript_id, occ)
+tsebra.gtf.sorted <- left_join(tsebra.gtf.sorted, transcript_id, by=c("transcript_id" = "transcript_id"))
+
+
+
+# write temporary RDS file:
+saveRDS(tsebra.gtf.sorted, 
+          "../../data/TSEBRA/tsebra_temp3.RDS")
+```
+
+Rename:
+
+```{r}
+# read in RDS file
+tsebra.gtf.sorted <- readRDS("../../data/TSEBRA/tsebra_temp3.RDS")
+
+# rename the locus and transcript ID records to match
+# add column indicating the gene order
+ids <- unique(tsebra.gtf.sorted$locus)
+# create vector of gene order
+order3 <- 1:length(ids)
+# fill up the order so that every number includes 6 figures
+order_filled <- c()
+for (i in 1:length(order3)){
+  order_filled[i] <- paste(c(rep(0,6-nchar(order3[i])), order3[i]), sep="", collapse="")
+}
+# add characters to the beginning of the number to create the gene identifier
+gene_identifier <- paste("AHq", order_filled, sep="")
+
+# add the new gene identifier to the tsebra dataframe
+gene.id.df <- data.frame(ids, order3, order_filled, gene_identifier)
+tsebra.gtf.sorted <- left_join(tsebra.gtf.sorted, gene.id.df, by = c("locus" = "ids"))
+
+# create the transcript identifier based on gene identifier 
+tsebra.gtf.sorted <- tsebra.gtf.sorted %>%
+  mutate(transcript_identifier = paste0(gene_identifier, ".", occ))
+
+# include new attribute column
+tsebra.gtf.sorted$new_attributes <- paste0("gene_id \"", 
+                                            tsebra.gtf.sorted$gene_identifier, 
+                                            "\"; transcript_id \"", 
+                                            tsebra.gtf.sorted$transcript_identifier, 
+                                            "\";")
+# create mapping file of old and new names:
+mapping <- tsebra.gtf.sorted %>% select(gene_id, transcript_id, locus, gene_identifier, transcript_identifier)
+saveRDS(mapping, "../../data/TSEBRA/mapping.RDS")
+
+# create final gtf file in the correct column order:
+output <- tsebra.gtf.sorted %>%
+  ungroup() %>%
+  select(chr, source, type, start, end, score, strand, phase, new_attributes)
+
+# write gtf
+write.table(output[,1:9], 
+          "../../data/TSEBRA/tsebra_renamed.gtf",
+          col.names = F, row.names = F, quote=F, sep ="\t")
+```
+
+Convert to gff3 also, extract prot and cds fasta
+
+```{bash}
+# Extract prot + cds + exon sequences, convert to gff3:
+/home/tom/Documents/tools/gffread-0.12.7/gffread -g data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta -E --keep-genes -w data/TSEBRA/tsebra_renamed.spliced_exons.fasta -x data/TSEBRA/tsebra_renamed.cds.fasta -y data/TSEBRA/tsebra_renamed.prot.fasta -o data/TSEBRA/tsebra_renamed.gff data/TSEBRA/tsebra_renamed.gtf
+```
+
+Create output directory and copy with correct name to output directory
+
+```{bash}
+# create output directory
+mkdir -p data/reference_genome/annotation
+
+# rename output files
+cp data/TSEBRA/tsebra_renamed.prot.fasta data/reference_genome/annotation/Ahypochondriacus_v3.prot.fasta
+cp data/TSEBRA/tsebra_renamed.cds.fasta data/reference_genome/annotation/Ahypochondriacus_v3.cds.fasta
+cp data/TSEBRA/tsebra_renamed.spliced_exons.fasta data/reference_genome/annotation/Ahypochondriacus_v3.spliced_exons.fasta
+cp data/TSEBRA/tsebra_renamed.gtf data/reference_genome/annotation/Ahypochondriacus_v3.gtf
+cp data/TSEBRA/tsebra_renamed.gff data/reference_genome/annotation/Ahypochondriacus_v3.gff
+# generate gtf file with exon feature (only effects manual AmMYBl1 entry)
+/home/tom/Documents/tools/gffread-0.12.7/gffread --force-exons -T data/reference_genome/annotation/Ahypochondriacus_v3.gtf > data/reference_genome/annotation/Ahypochondriacus_v3.exons.gtf
+
+# final run of busco for the annotation
+busco -m protein -i data/reference_genome/annotation/Ahypochondriacus_v3.prot.fasta -o final_annotation -l embryophyta_odb10 --out_path data/TSEBRA/ --download_path ../Ahyp_v2_2/data/annotation_analysis/busco/datasets/ -c 6
+```
+
+
+Analyse genome annotation:
+
+```{r}
+# read in annotation
+annotation <- read.gtf(file = "../../data/reference_genome/annotation/Ahypochondriacus_v3.exons.gtf")
+
+transcripts <- annotation %>%
+  filter(type == "transcript")
+
+table(transcripts$source)
+
+# calculate mean exon length
+annotation %>%
+  filter(type == "exon") %>%
+  mutate(length = end - start) %>%
+  summarise(mean_length = mean(length))
+
+
+# read in genome annotation as transcript database
+transcript_annotation <- makeTxDbFromGFF(file = "../../data/reference_genome/annotation/Ahypochondriacus_v3.exons.gtf")
+
+# exons for each gene
+exons <- exonsBy(transcript_annotation, by = "tx", use.names= T)
+# make a data frame with transcripts and exon count
+exons.tx <- data.frame(tx = 1:length(exons), exons = sapply(exons, length))
+
+tx_length <- transcriptLengths(transcript_annotation,
+                               with.cds_len = T,
+                               with.utr5_len = T,
+                               with.utr3_len = T)
+
+sum(tx_length$utr5_len != 0)
+
+ggplot(data = tx_length) +
+  geom_density(aes(x = tx_len),
+               color = "black") +
+  geom_density(aes(x = cds_len),
+               color = "red")
+
+
+gene_summary <- tx_length %>%
+  group_by(gene_id) %>%
+  summarise(mean_exons = mean(nexon),
+            mean_transcript_length = mean(tx_len),
+            mean_cds_length = mean(cds_len),
+            mean_utr5_length = mean(utr5_len),
+            mean_utr3_lengt = mean(utr3_len))
+
+summary(gene_summary)
+
+```
+

@@ -1,0 +1,284 @@
+---
+title: "Circos_plot"
+author: "twinkle1"
+date: '2022-08-25'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(circlize)
+library(data.table)
+library(GenomicRanges)
+library(cowplot)
+library(patchwork)
+```
+
+
+## Setup
+
+```{r}
+read.gtf <- function(file){
+  # based on: https://www.biostars.org/p/272889/
+  # read in the gtf file:
+  gff <- fread(file)
+  setnames(gff, names(gff), c("chr","source","type","start","end","score","strand","phase","attributes"))
+  # subset attribute column into the gene and transcript id columns
+  # function for extracting the two attributes
+  extract_attributes <- function(gtf_column, att_of_interest){
+    att <- strsplit(gtf_column, "; ")
+    att <- gsub("\"","",unlist(att))
+    att <- gsub(";","",unlist(att))
+    if(!is.null(unlist(strsplit(att[grep(att_of_interest, att)], " ")))){
+      return( unlist(strsplit(att[grep(att_of_interest, att)], " "))[2])
+    }else{
+      return(NA)
+    }
+  }
+  # using the function to subset gene and transcript id:
+  gff$gene_id <- unlist(lapply(gff$attributes, extract_attributes, "gene"))
+  gff$transcript_id <- unlist(lapply(gff$attributes, extract_attributes, "transcript"))
+  return(gff)
+}
+
+# Create function for converting gtf dataframe to genomic ranges onbject
+Granges_from_gtf <- function(gtf){
+  # requires the GRanges and tidyverse packages
+  gene_structures <- gtf %>%
+  group_by(transcript_id) %>% # group by transcript id
+  summarise(gene_start = min(start),
+            gene_end = max(end),
+            seqnames = unique(chr), # all sequences should be on the same chromosome
+            gene_strand = unique(strand))
+  # use the gene_structures object to create the genomic ranges object
+  gene_ranges <- GRanges(seqnames = gene_structures$seqnames,
+                         ranges = IRanges(start=gene_structures$gene_start,
+                                          end=gene_structures$gene_end,
+                                          names = gene_structures$transcript_id),
+                         strand = gene_structures$gene_strand)
+  return(gene_ranges)
+}
+```
+
+
+
+## Circos plot
+
+Load in data and perform necessary transformations.
+
+```{r}
+# for the circlize package, bed-like dataframes are required
+# load in the indexed genome and create a bed-like format from the genome
+genome.bed <- read.table("../data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta.fai")
+genome.bed <- genome.bed %>%
+  head(16) %>%
+  summarize(chr = V1,
+            start = 1,
+            end = V2)
+# define chromosome order:
+order <- as.numeric(gsub(".*_", "", genome.bed$chr))
+genome.bed$chr <- as.factor(genome.bed$chr)
+# reorder based on on order vector
+genome.bed$chr <- reorder(genome.bed$chr, order)
+
+# load in genome annotation
+gene_annotation <- read.gtf("../data/reference_genome/annotation/Ahypochondriacus_v3.gtf")
+
+# keep only the first isoform
+gene_bed <- gene_annotation %>%
+  group_by(gene_id) %>%
+  arrange(transcript_id) %>%
+  filter(transcript_id == dplyr::first(transcript_id)) %>%
+  ungroup() %>%
+  filter(type == "exon") %>%
+    summarize(chr = chr,
+            start = start,
+            end = end)
+
+
+# load in repetitive element annotation
+rep_annotation <- read.table("../data/EDTA2_out/Ahypochondriacus_v3.fasta.mod.EDTA.intact.gff3")
+# remove multiple annotations for one repetitive element
+rep_annotation <- rep_annotation[!grepl("Parent", rep_annotation$V9),]
+colnames(rep_annotation) <- c("chr", "source", "type", "start", "end", "score",
+                              "strand", "phase", "attributes")
+# add TE id and classification
+rep_annotation <- rep_annotation %>%
+  mutate(id = sub(".*ID=([^;]+);.*", "\\1", attributes),
+         classification = sub(".*Classification=([^;]+);.*", "\\1", attributes))
+
+# make input structure
+rep_bed <- rep_annotation %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+
+png(filename = "../plots/intact_TE_circos.png", width = 4800, height = 4800, res = 1200)
+circos.clear()
+circos.par("start.degree" = 90)
+circos.genomicInitialize(data=genome.bed,
+                         tickLabelsStartFromZero = F,
+                         axis.labels.cex = 0.3,
+                         labels.cex = 0.5)
+
+# gene density
+circos.genomicDensity(gene_bed,
+                      track.height=0.15,
+                      window.size = 1000000,
+                      col="dodgerblue3")
+
+# repetitive element density
+circos.genomicDensity(rep_bed,
+                      track.height=0.15,
+                      #window.size = 1000000,
+                      window.size = 2000000,
+                      col="forestgreen")
+
+dev.off()
+
+```
+
+Plot again with complete repetitive element annotation:
+
+```{r}
+# load in repetitive element annotation
+rep_annotation <- read.table("../data/EDTA2_out/Ahypochondriacus_v3.fasta.mod.EDTA.TEanno.gff3")
+# remove multiple annotations for one repetitive element
+rep_annotation <- rep_annotation[!grepl("Parent", rep_annotation$V9),]
+colnames(rep_annotation) <- c("chr", "source", "type", "start", "end", "score",
+                              "strand", "phase", "attributes")
+# add TE id and classification
+rep_annotation <- rep_annotation %>%
+  mutate(id = sub(".*ID=([^;]+);.*", "\\1", attributes),
+         classification = sub(".*Classification=([^;]+);.*", "\\1", attributes))
+
+# make input structure
+rep_bed <- rep_annotation %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+
+png(filename = "../plots/complete_TE_circos.png", width = 4800, height = 4800, res = 1200)
+circos.clear()
+circos.par("start.degree" = 90)
+circos.genomicInitialize(data=genome.bed,
+                         tickLabelsStartFromZero = F,
+                         axis.labels.cex = 0.3,
+                         labels.cex = 0.5)
+
+# gene density
+circos.genomicDensity(gene_bed,
+                      track.height=0.15,
+                      window.size = 1000000,
+                      col="dodgerblue3")
+
+# repetitive element density
+circos.genomicDensity(rep_bed,
+                      track.height=0.15,
+                      window.size = 1000000,
+                      col="forestgreen")
+
+dev.off()
+```
+
+
+Plot with certain TE categories
+
+```{r}
+# load in repetitive element annotation
+rep_annotation <- read.table("../data/EDTA2_out/Ahypochondriacus_v3.fasta.mod.EDTA.TEanno.gff3")
+# remove multiple annotations for one repetitive element
+rep_annotation <- rep_annotation[!grepl("Parent", rep_annotation$V9),]
+colnames(rep_annotation) <- c("chr", "source", "type", "start", "end", "score",
+                              "strand", "phase", "attributes")
+# add TE id and classification
+rep_annotation <- rep_annotation %>%
+  mutate(id = sub(".*ID=([^;]+);.*", "\\1", attributes),
+         name = sub(".*Name=([^;]+);.*", "\\1", attributes),
+         classification = sub(".*classification=([^;]+);.*", "\\1", attributes),
+         method = sub(".*method=([^;]+).*", "\\1", attributes),
+         length = end-start) %>%
+  mutate(superfamily = sub("/.*","", classification))
+
+rep_annotation %>%
+  filter(classification == "DNA/Helitron",
+         method == "homology") %>%
+  group_by(name) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+rep_annotation %>%
+  filter(classification == "DNA/Helitron",
+         method == "structural") %>%
+  group_by(name) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+
+# make input structure
+rep_bed <- rep_annotation %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+LINE_bed <- rep_annotation %>%
+  filter(superfamily == "LINE") %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+LTR_bed <- rep_annotation %>%
+  filter(superfamily == "LTR") %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+DNA_bed <- rep_annotation %>%
+  filter(superfamily == "DNA") %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+MITE_bed <- rep_annotation %>%
+  filter(superfamily == "MITE") %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+#png(filename = "../plots/Supp_fig_TE_families_circos.png", width = 4800, height = 4800, res = 1200)
+jpeg(file = "../plots/Supp_fig_TE_families_circos.jpeg", width = 4800, height = 4800, res = 1200)
+circos.clear()
+circos.par("start.degree" = 90)
+circos.genomicInitialize(data=genome.bed,
+                         tickLabelsStartFromZero = F,
+                         axis.labels.cex = 0.3,
+                         labels.cex = 0.5)
+
+# gene density
+ circos.genomicDensity(gene_bed,
+                       track.height=0.12,
+                       window.size = 1000000,
+                       col="#440154")
+
+# LTR density
+circos.genomicDensity(LTR_bed,
+                      track.height=0.12,
+                      window.size = 1000000,
+                      col="#365c8d")
+
+# LINE density
+circos.genomicDensity(LINE_bed,
+                      track.height=0.12,
+                      window.size = 1000000,
+                      col="#1fa187")
+
+# # DNA density
+circos.genomicDensity(DNA_bed,
+                      track.height=0.12,
+                      window.size = 1000000,
+                      col="#a0da39")
+
+dev.off()
+```

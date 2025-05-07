@@ -1,0 +1,379 @@
+---
+title: "genome_colinearity_analysis"
+author: "TW"
+date: "2024-01-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(data.table)
+library(pafr)
+```
+
+```{bash}
+# create output directory
+mkdir -p data/reference_genome/assembly/intermediates
+
+# align genomes using minimap2
+/home/tom/Documents/tools/minimap2/minimap2 -x asm5 \
+  ../Ahyp_v2_2/polished_genome_annotation/assembly/Ahypochondriacus_2.2_polished.softmasked.fasta \
+  raw_data/Plainsman/Genome/softmasked_repeatmasker/PGA_inspector-corr_flipped_renamed_ordered.fa.masked > data/reference_genome/assembly/intermediates/reference_genome_alignment.paf
+```
+
+
+```{r}
+# read in data
+aln <- read_paf(file_name = "../data/reference_genome/assembly/intermediates/reference_genome_alignment.paf")
+aln <- aln %>%
+  filter(mapq == 60)
+
+# filter for only long alignments
+long_aln <- aln %>%
+  filter(alen > 1e4)
+
+```
+
+Alignment dotplot
+
+```{r}
+# dotplot to compare both alignments
+dotplot(aln,
+        order_by = "size",
+        label_seqs = T,
+        xlab = "Genome v3",
+        ylab = "Genome v2.2") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/genome_dotplot.png",
+       bg = "white",
+       dpi = 450,
+       #width = 8, height = 8)
+       width = 16, height = 16)
+
+```
+
+Coverage of both reference genomes
+
+```{r}
+# filter alignments for pseudochromosomal sequences
+filtered_aln <- long_aln %>%
+  filter(grepl("Scaffold", long_aln$tname),
+         grepl("chr", long_aln$qname))
+
+# convert to dataframe
+df_aln_filtered <- as.data.frame(filtered_aln)
+df_aln_filtered$tname <- factor(df_aln_filtered$tname, levels = c("Scaffold_1", "Scaffold_2",
+                                                                  "Scaffold_3", "Scaffold_4",
+                                                                  "Scaffold_5", "Scaffold_6",
+                                                                  "Scaffold_7", "Scaffold_8",
+                                                                  "Scaffold_9", "Scaffold_10",
+                                                                  "Scaffold_11", "Scaffold_12",
+                                                                  "Scaffold_13", "Scaffold_14",
+                                                                  "Scaffold_15", "Scaffold_16"))
+
+
+
+# plot coverage of the genome v2
+plot_coverage(df_aln_filtered, fill = "qname") +
+  labs(fill = "Genome v3") +
+  theme(text = element_text(size = 22))
+
+ggsave(filename = "../plots/coverage_v2.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+
+# plot coverage of the genome v3
+plot_coverage(df_aln_filtered, target = F, fill = "tname") +
+  labs(fill = "Genome v2.2") +
+  theme(text = element_text(size = 22))
+
+ggsave(filename = "../plots/coverage_v3.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+```
+
+Plot synteny of individual chromosomes
+
+```{r}
+# large scale inversion between Scaffold_11 and chr_5A
+plot_synteny(long_aln, q_chrom = "chr_5A", t_chrom = "Scaffold_11",
+             centre = F,
+             rc = T,
+             xlab = "Position in sequence") +
+  theme_classic() +
+  theme(axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/synteny_chr5A_scaffold11.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+
+# region with contamination on Scaffold_10 with chr_2A synteny
+plot_synteny(long_aln, q_chrom = "chr_2A", t_chrom = "Scaffold_10",
+             centre = F,
+             rc = F,
+             xlab = "Position in sequence") +
+  theme_classic() +
+  theme(axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/synteny_chr2A_scaffold10.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+```
+
+
+Prepare tab delimited renaming of fasta header based on previous A. hypochondriacus genome.
+
+
+
+```{r}
+# list of chromosomes that need to be reverse complimented
+complement <- c("chr_9AB", "chr_6A", "chr_4A",
+                "chr_1", "chr_3A", "chr_5A",
+                "chr_5B", "chr_2B")
+
+write.table(complement,
+            file = "../data/reference_genome/assembly/intermediates/to_complement.txt",
+            sep = "\t",
+            quote = F,
+            row.names = F,
+            col.names = F)
+
+# match scaffold and chrosome names from the assemblies
+# find which chromosome corresponds to which in the other assembly
+name_mapping <- df_aln_filtered %>%
+  group_by(qname, tname) %>%
+  summarise(total_aln_length = sum(alen)) %>%
+  arrange(desc(total_aln_length)) %>%
+  slice_head(n = 1) %>%
+  ungroup() %>%
+  reframe(names_v3 = qname,
+          new_names = gsub("Scaffold", "chr", tname))
+
+
+write.table(name_mapping,
+            file = "../data/reference_genome/assembly/intermediates/name_mapping.txt",
+            sep = "\t",
+            quote = F,
+            row.names = F,
+            col.names = F)
+```
+
+
+Manually curate the names, reverse complement flipped chromosomes
+
+```{bash}
+# sequences to complement
+seqkit grep -n -f data/reference_genome/assembly/intermediates/to_complement.txt raw_data/Plainsman/Genome/softmasked_repeatmasker/PGA_inspector-corr_flipped_renamed_ordered.fa.masked > data/reference_genome/assembly/intermediates/chr_to_complement.fasta
+
+# no complementation required
+seqkit grep -v -n -f data/reference_genome/assembly/intermediates/to_complement.txt raw_data/Plainsman/Genome/softmasked_repeatmasker/PGA_inspector-corr_flipped_renamed_ordered.fa.masked > data/reference_genome/assembly/intermediates/no_complement.fasta
+
+# complement sequences
+seqkit seq -r -p --seq-type DNA data/reference_genome/assembly/intermediates/chr_to_complement.fasta > data/reference_genome/assembly/intermediates/complemented.fasta
+
+# concatenate
+cat data/reference_genome/assembly/intermediates/complemented.fasta data/reference_genome/assembly/intermediates/no_complement.fasta > data/reference_genome/assembly/intermediates/complemented_merged.fasta
+
+# make sure that sequence length is unchanged
+samtools faidx data/reference_genome/assembly/intermediates/complemented_merged.fasta
+awk '{print $2}' data/reference_genome/assembly/intermediates/complemented_merged.fasta.fai | sort > data/reference_genome/assembly/intermediates/complemented_lengths.txt
+awk '{print $2}' raw_data/Plainsman/Genome/softmasked_repeatmasker/PGA_inspector-corr_flipped_renamed_ordered.fa.masked.fai | sort > data/reference_genome/assembly/intermediates/raw_lengths.txt
+# sequence length remains unchanged
+comm -23 data/reference_genome/assembly/intermediates/complemented_lengths.txt data/reference_genome/assembly/intermediates/raw_lengths.txt
+
+# check that softmasking stayed the same:
+# number of capital letters
+grep -v ">" data/reference_genome/assembly/intermediates/renamed.fasta | awk '{count+=gsub(/[A-Z]/,"&")}END{print count}'
+grep -v ">" raw_data/Plainsman/Genome/softmasked_repeatmasker/PGA_inspector-corr_flipped_renamed_ordered.fa.masked | awk '{count+=gsub(/[A-Z]/,"&")}END{print count}'
+# non-capital letters
+grep -v ">" data/reference_genome/assembly/intermediates/renamed.fasta | awk '{count+=gsub(/[a-z]/,"&")}END{print count}'
+grep -v ">" raw_data/Plainsman/Genome/softmasked_repeatmasker/PGA_inspector-corr_flipped_renamed_ordered.fa.masked | awk '{count+=gsub(/[a-z]/,"&")}END{print count}'
+
+# change fasta names
+seqkit replace -U -p "(.+)" -r '{kv}' -k data/reference_genome/assembly/intermediates/name_mapping.txt data/reference_genome/assembly/intermediates/complemented_merged.fasta > data/reference_genome/assembly/intermediates/renamed.fasta
+
+# align genomes after renaming using minimap2
+/home/tom/Documents/tools/minimap2/minimap2 -x asm5 ../Ahyp_v2_2/polished_genome_annotation/assembly/Ahypochondriacus_2.2_polished.softmasked.fasta data/reference_genome/assembly/intermediates/renamed.fasta > data/reference_genome/assembly/intermediates/processed_reference_genome_alignment.paf
+
+# renamed, colinear assembly fasta, sort by natural order
+seqkit sort -N -n data/reference_genome/assembly/intermediates/renamed.fasta > data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta
+samtools faidx data/reference_genome/assembly/Ahypochondriacus_v3.softmasked.fasta
+```
+
+Read in data after renaming and flipping chromosomes:
+
+```{r}
+# read in data
+proc_aln <- read_paf(file_name = "../data/reference_genome/assembly/intermediates/processed_reference_genome_alignment.paf")
+proc_aln <- proc_aln %>%
+  filter(mapq == 60)
+
+# filter for only long alignments
+proc_long_aln <- proc_aln %>%
+  filter(alen > 1e4)
+
+# prepare filtered list for dotplot
+proc_filtered <- proc_aln[grepl("chr", proc_aln$qname),]
+proc_filtered <- proc_filtered[grepl("Scaffold", proc_filtered$tname),]
+
+```
+
+Dotplot:
+
+```{r}
+# dotplot to compare both alignments
+dotplot(proc_aln,
+        order_by = "size",
+        #order_by = "qstart",
+        label_seqs = T,
+        xlab = "Genome v3",
+        ylab = "Genome v2.2") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/processed_genome_dotplot.png",
+       bg = "white",
+       dpi = 450,
+       #width = 8, height = 8)
+       width = 16, height = 16)
+
+
+# dotplot in order
+order_list <- list(c("chr_1", "chr_2",
+                                                                  "chr_3", "chr_4",
+                                                                  "chr_5", "chr_6",
+                                                                  "chr_7", "chr_8",
+                                                                  "chr_9", "chr_10",
+                                                                  "chr_11", "chr_12",
+                                                                  "chr_13", "chr_14",
+                                                                  "chr_15", "chr_16"),
+                   c("Scaffold_1", "Scaffold_2",
+                                                                  "Scaffold_3", "Scaffold_4",
+                                                                  "Scaffold_5", "Scaffold_6",
+                                                                  "Scaffold_7", "Scaffold_8",
+                                                                  "Scaffold_9", "Scaffold_10",
+                                                                  "Scaffold_11", "Scaffold_12",
+                                                                  "Scaffold_13", "Scaffold_14",
+                                                                  "Scaffold_15", "Scaffold_16"))
+
+# dotplot to compare both alignments
+dotplot(proc_filtered,
+        order_by = "provided",
+        ordering = order_list,
+        #order_by = "qstart",
+        line_size = 2,
+        label_seqs = T,
+        xlab = "A. hypochondriacus v3",
+        ylab = "A. hypochondriacus v2.2") +
+  theme_classic() +
+  theme(text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/Supp_fig_genome_dotplot.png",
+       bg = "white",
+       dpi = 450,
+       width = 8, height = 8)
+       #width = 16, height = 16)
+
+# large scale inversion between Scaffold_11 and chr_5A
+plot_synteny(proc_long_aln, q_chrom = "chr_11", t_chrom = "Scaffold_11",
+             centre = F,
+             rc = F,
+             xlab = "Position in sequence") +
+  theme_classic() +
+  theme(axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/synteny_chr11_scaffold11.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+
+# misassembled region
+plot_synteny(proc_long_aln, q_chrom = "chr_10", t_chrom = "Scaffold_10",
+             centre = F,
+             rc = F,
+             xlab = "Position in sequence") +
+  theme_classic() +
+  theme(axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 23),
+        axis.text = element_text(color = "black"))
+
+ggsave(filename = "../plots/Supp_fig_synteny_chr10_scaffold10.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+
+```
+
+Plot genomes aligned onto one another
+
+```{r}
+# filter alignments for pseudochromosomal sequences
+proc_filtered_aln <- proc_long_aln %>%
+  filter(grepl("Scaffold", proc_long_aln$tname),
+         grepl("chr", proc_long_aln$qname))
+
+# convert to dataframe
+proc_df_aln_filtered <- as.data.frame(proc_filtered_aln)
+proc_df_aln_filtered$tname <- factor(proc_df_aln_filtered$tname, levels = c("Scaffold_1", "Scaffold_2",
+                                                                  "Scaffold_3", "Scaffold_4",
+                                                                  "Scaffold_5", "Scaffold_6",
+                                                                  "Scaffold_7", "Scaffold_8",
+                                                                  "Scaffold_9", "Scaffold_10",
+                                                                  "Scaffold_11", "Scaffold_12",
+                                                                  "Scaffold_13", "Scaffold_14",
+                                                                  "Scaffold_15", "Scaffold_16"))
+
+proc_df_aln_filtered$qname <- factor(proc_df_aln_filtered$qname, levels = c("chr_1", "chr_2",
+                                                                  "chr_3", "chr_4",
+                                                                  "chr_5", "chr_6",
+                                                                  "chr_7", "chr_8",
+                                                                  "chr_9", "chr_10",
+                                                                  "chr_11", "chr_12",
+                                                                  "chr_13", "chr_14",
+                                                                  "chr_15", "chr_16"))
+
+
+# plot coverage of the genome v2
+plot_coverage(proc_df_aln_filtered, fill = "qname") +
+  labs(fill = "Genome v3") +
+  theme(text = element_text(size = 22))
+
+ggsave(filename = "../plots/proc_coverage_v2.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+
+# plot coverage of the genome v3
+plot_coverage(proc_df_aln_filtered, target = F, fill = "tname") +
+  labs(fill = "Genome v2.2") +
+  theme(text = element_text(size = 22))
+
+ggsave(filename = "../plots/proc_coverage_v3.png",
+       bg = "white",
+       dpi = 450,
+       width = 10, height = 6)
+```
+
+
+
+
