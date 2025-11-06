@@ -1,0 +1,99 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+# load libraries
+library(tidyverse)
+library(cowplot)
+theme_set(theme_cowplot())
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+library(agricolae)
+```
+
+
+
+
+
+```{r}
+
+dfpeaks <- read.csv("~/Documents/projects/ATAC_seq/nature_comm_publication/figures/data/ahypv3_w_sampleinfo_nowgs_filt.csv", sep = ",")
+# Extract distinct combinations of 'full_sample', 'species', and 'tissue'
+dfpeak_species <- dfpeaks %>% distinct(full_sample, species, tissue)
+
+
+#######.   coverage
+
+
+# Extract information about samples
+dfinfo <- dfpeaks %>% transmute(full_sample=full_sample, Accession=Accession, species=species, tissue=tissue) %>% distinct()
+
+# Calculate OCR coverage of the whole genome
+df_coverage <- dfpeaks %>% group_by(full_sample) %>% summarise(coverage=sum(length))
+df_coverage <- df_coverage %>% left_join(dfinfo, by="full_sample")
+df_coverage <- df_coverage %>% mutate(fraction=coverage/434800201*100) # hypochondriacus
+
+# Calculate the median coverage for each 'species'
+sample_median <- df_coverage %>% group_by(species) %>% summarize(median=median(fraction)) %>% mutate(position=1:5)
+
+# Perform ANOVA and post-hoc test for coverage
+Spr.aov2 <- aov(coverage ~ species, data = df_coverage)
+summary(Spr.aov2)
+
+# Display the post-hoc test
+hsd_res=HSD.test(Spr.aov2,c("species"),alpha=0.05, group=T)
+hsd_res
+sigtab=hsd_res$groups
+rownames(sigtab)
+sigtab$factors=sub(":",".",row.names(sigtab))
+
+write_csv(df_coverage, "~/Documents/projects/ATAC_seq/nature_comm_publication/figures/data/Figure3A.csv")
+
+df_coverage %>%
+  mutate(species = factor(species, levels = c("caudatus", "cruentus", "hypochondriacus", "hybridus", "quitensis"))) %>%
+  ggplot(aes(x = species, y = fraction)) +
+  geom_point(aes(shape = tissue, fill=species, alpha=0.95), position = position_dodge(width = 0.25), size = 7) +
+  scale_shape_manual(values = c(21, 22)) +
+  #scale_fill_manual(values = c("lightblue", "darkblue", "orange", "green", "red")) + 
+  #scale_fill_manual(values = c("#B4E5A2", "#9DC3E6", "#E6978E", "#F2AA84", "#CCBEFF")) +
+  scale_fill_manual(values = c("#B4E5A2", "#9DC3E6", "#E6978E", "#F2AA84", "#CCBEFF")) +
+  guides(fill = guide_legend(override.aes=list(shape=21, alpha = 0.6))) +
+  geom_segment(data = sample_median,
+               aes(x = as.numeric(position)-0.3, xend = as.numeric(position)+0.3,
+                   y = median, yend = median,
+
+                   name = "Median"),
+              color = "red",
+               linewidth = 2) +
+  labs(x = "Species",
+       y = "ACR genome\ coverage (%)") +
+  theme(axis.text.x = element_text(face="bold", size=35, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(size=35, angle=45, hjust=1),
+        axis.title=element_text(size=35,face="bold"),
+        axis.text.y = element_text(face="bold", size=35)) + 
+  theme(legend.title = element_blank()) +
+  geom_text(data=sigtab,aes(x=factors,y=10,label=groups), size=12, fontface="bold", inherit.aes = F)
+  #guides(fill=guide_legend(title="")) +
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/nature_comm_publication/figures/Figure3A.pdf", width=15, height=10, bg="white")
+
+
+
+```
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+

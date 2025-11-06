@@ -1,0 +1,225 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# libraries
+```{r}
+library(tidyverse)
+library(reshape2)
+library(cowplot)
+theme_set(theme_cowplot())
+library(rtracklayer)
+library(data.table)
+```
+
+# prepare data
+```{r}
+library(tidyverse)
+
+dfpeaks <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+
+dfpeaks_l <- dfpeaks %>% filter(tissue=="leaf")
+dfpeaks_s <- dfpeaks %>% filter(tissue=="seedling")
+
+library(GenomicRanges)
+GRref_l <- makeGRangesFromDataFrame(dfpeaks_l)
+GRref_s <- makeGRangesFromDataFrame(dfpeaks_s)
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref_l <- reduce(GRref_l)
+GRref_s <- reduce(GRref_s)
+
+library(tidyverse)
+
+
+
+setwd("~/Documents/projects/ATAC_seq/data/ref_genomes")
+gff <- makeTxDbFromGFF("Ahypochondriacus_v3_chrX.gff")
+
+annoData <- toGRanges(gff, feature="gene")
+annoData
+
+
+
+```
+
+
+# genomic regions of ACRs
+```{r}
+# both tissues
+aCR_o <-assignChromosomeRegion(GRref, nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=0), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_o <- data.frame(aCR_o$percentage)
+
+dfpercentage <- dfaCR_o %>% transmute(percentage=c(Freq[1]+Freq[3], Freq[2]+Freq[4], 0, 0,Freq[5],Freq[6],Freq[7]))
+
+dfaCR_total <- dfaCR_o %>% mutate(percentage=dfpercentage$percentage, rn = c("2kb_upstream", "2kb_downstream", "fiveUTRs", "threeUTRs", "Exons", "Introns", "Intergenic")) %>% filter(!subjectHits=="fiveUTRs", !subjectHits=="threeUTRs") %>% group_by(rn) %>% 
+  mutate(rn = factor(rn, levels = c("2kb_upstream", "Exons", "Introns", "2kb_downstream", "Intergenic")), group="All tissues") %>% dplyr::select(c(rn, percentage,group)) #%>% mutate(absolute=round((percentage*nrow(genome_fraction_s))/100))
+
+
+# seedling
+aCR_o_s <-assignChromosomeRegion(GRref_s, nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=0), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_o_s <- data.frame(aCR_o_s$percentage)
+
+dfpercentage <- dfaCR_o_s %>% transmute(percentage=c(Freq[1]+Freq[3], Freq[2]+Freq[4], 0, 0,Freq[5],Freq[6],Freq[7]))
+
+dfaCR_seedling <- dfaCR_o_s %>% mutate(percentage=dfpercentage$percentage, rn = c("2kb_upstream", "2kb_downstream", "fiveUTRs", "threeUTRs", "Exons", "Introns", "Intergenic")) %>% filter(!subjectHits=="fiveUTRs", !subjectHits=="threeUTRs") %>% group_by(rn) %>% 
+  mutate(rn = factor(rn, levels = c("2kb_upstream", "Exons", "Introns", "2kb_downstream", "Intergenic")), group="Seedling") %>% dplyr::select(c(rn, percentage,group)) #%>% mutate(absolute=round((percentage*nrow(genome_fraction_s))/100))
+
+
+# leaf
+aCR_o_l <-assignChromosomeRegion(GRref_l, nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=0), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_o_l <- data.frame(aCR_o_l$percentage)
+
+dfpercentage <- dfaCR_o_l %>% transmute(percentage=c(Freq[1]+Freq[3], Freq[2]+Freq[4], 0, 0,Freq[5],Freq[6],Freq[7]))
+
+dfaCR_leaf <- dfaCR_o_l %>% mutate(percentage=dfpercentage$percentage, rn = c("2kb_upstream", "2kb_downstream", "fiveUTRs", "threeUTRs", "Exons", "Introns", "Intergenic")) %>% filter(!subjectHits=="fiveUTRs", !subjectHits=="threeUTRs") %>% group_by(rn) %>% 
+  mutate(rn = factor(rn, levels = c("2kb_upstream", "Exons", "Introns", "2kb_downstream", "Intergenic")), group="Leaf") %>% dplyr::select(c(rn, percentage,group)) #%>% mutate(absolute=round((percentage*nrow(genome_fraction_l))/100))
+
+
+```
+
+# genomic regions of whole genome
+```{r}
+
+
+dfgenome <- read.table("~/Documents/projects/ATAC_seq/data/ref_genomes/Ahypochondriacus_v3.softmasked.fasta.fai")
+dfgenome <- dfgenome %>% transmute(chr=V1,length=V2) %>% filter(str_detect(chr, "chr"))
+chr <- rep(dfgenome$chr, dfgenome$length)  # Repeat each chromosome based on its length
+start <- sequence(dfgenome$length)   # Create sequences for each chromosome length
+
+chr <- rep(dfgenome$chr, dfgenome$length %/% 10)  # Adjust repetition based on the number of 100 bp steps
+#chr <- c("chr_1", "chr_2", "chr_3", "chr_4", "chr_5", "chr_6", "chr_7", "chr_8", "chr_9", "chr_10", "chr_11", "chr_12", "chr_13", "chr_14", "chr_15", "chr_16", chr)
+chr <- c("chr_1", "chr_3", "chr_4", "chr_5", "chr_6", "chr_7", "chr_8", "chr_9", "chr_10", "chr_11", "chr_12", "chr_14", "chr_15", "chr_16", chr)
+custom_order <- c("chr_1", "chr_2", "chr_3", "chr_4", "chr_5", 
+                  "chr_6", "chr_7", "chr_8", "chr_9", "chr_10", 
+                  "chr_11", "chr_12", "chr_13", "chr_14", "chr_15", "chr_16")
+# Convert chr to a factor with levels in the custom order
+chr_factor <- factor(chr, levels = custom_order, ordered = TRUE)
+# Sort based on the custom order
+chr_sorted <- sort(chr_factor)
+# Convert back to character vector if needed
+chr_sorted <- as.character(chr_sorted)
+
+start <- unlist(lapply(dfgenome$length, function(l) seq(1, l, by = 10)))
+table(chr)
+# Create the new dataframe
+dfwhole_genome <- data.frame(chr_sorted, start)
+dfwhole_genome <- dfwhole_genome %>% transmute(position=row_number(), chr=chr, start=start, end=start+10) %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+rownames(dfwhole_genome) <- dfwhole_genome$position
+
+GRgenome <- toGRanges(dfwhole_genome)
+annoData
+
+# overlaps are counted only once in order of option: "precedence"
+aCR_o_whg <-assignChromosomeRegion(GRgenome, nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=0), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_o_whg <- data.frame(aCR_o_whg$percentage)
+
+dfpercentage <- dfaCR_o_whg %>% transmute(percentage=c(Freq[1]+Freq[3], Freq[2]+Freq[4], 0, 0,Freq[5],Freq[6],Freq[7]))
+
+
+dfaCR_whg <- dfaCR_o_whg %>% mutate(percentage=dfpercentage$percentage, rn = c("2kb_upstream", "2kb_downstream", "fiveUTRs", "threeUTRs", "Exons", "Introns", "Intergenic")) %>% filter(!subjectHits=="fiveUTRs", !subjectHits=="threeUTRs") %>% group_by(rn) %>% 
+  mutate(rn = factor(rn, levels = c("2kb_upstream", "Exons", "Introns", "2kb_downstream", "Intergenic")), group="Whole genome") %>% dplyr::select(c(rn, percentage,group)) #%>% mutate(absolute=round((percentage*nrow(genome_fraction))/100))
+
+
+```
+
+
+# genomic regions of Methylation
+```{r}
+
+dfmeth <- read.csv("/Users/corbinian/Documents/projects/ATAC_seq/data/methylation/Plainsman_nickname_coveage_filtered.csv")
+dfmeth <- dfmeth %>% dplyr::select(-1)
+
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+
+GRmeth <- makeGRangesFromDataFrame(dfmeth)
+
+library(Repitools)
+library(tidyverse)
+
+
+# both tissues
+meth_o <-assignChromosomeRegion(GRmeth, nucleotideLevel=FALSE, 
+                                proximal.promoter.cutoff=c(upstream=2000, downstream=0), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                                precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                                TxDb=gff)
+
+dfmeth_o <- data.frame(meth_o$percentage)
+
+dfpercentage_meth <- dfmeth_o %>% transmute(percentage=c(Freq[1]+Freq[3], Freq[2]+Freq[4], 0, 0,Freq[5],Freq[6],Freq[7])) %>% mutate(rn = c("2kb_upstream", "2kb_downstream", "fiveUTRs", "threeUTRs", "Exons", "Introns", "Intergenic")) %>% filter(rn!="fiveUTRs", rn!="threeUTRs") %>% mutate(rn = factor(c("2kb_upstream", "2kb_downstream", "Exons", "Introns", "Intergenic"), levels = c("2kb_upstream", "Exons", "Introns", "2kb_downstream", "Intergenic"))) %>% group_by(rn)
+
+#write_csv(dfpercentage, "/Users/corbinian/Documents/projects/ATAC_seq/data/methylation/meth_genomic_regions.csv")
+dfpercentage_meth <- dfpercentage_meth %>% transmute(rn=rn, percentage=percentage, group="Methylation", absolute=0)
+
+dfall_ACRandMeth <- rbind(dfaCR_whg, dfaCR_total, dfaCR_leaf, dfaCR_seedling, dfpercentage_meth)
+dfall_ACRandMeth <- dfall_ACRandMeth %>% dplyr::select(-c(absolute))
+write_csv(dfall_ACRandMet, "/Users/corbinian/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure1B_genomic_regions.csv")
+
+
+
+```
+
+
+```{r}
+Tol_vibrant_a0.7 <-  c("#709FCD", "#8ECBEC", "#69B8AC", "#EAA57C", "#D17965")
+dfall_ACRandMet
+
+
+dfall_ACRandMeth %>% mutate(group2="test", group=if_else(group=="All tissues", "All ACRs", if_else(group=="Whole genome", "Whole\ngenome", group))) %>%   mutate(group = factor(group, levels = c("Whole\ngenome", "All ACRs", "Leaf", "Seedling", "Methylation"))) %>%
+  ggplot(aes(y = group2, x = percentage, fill = rn)) +
+  geom_bar(stat = "identity", alpha = 1) +
+  scale_fill_manual(
+    values = Tol_vibrant_a0.7[c(1,4,5,2,3)],
+    name = "Genomic Regions",
+    labels = c("2kb upstream", "Exons", "Introns", "2kb downstream", "Intergenic")) +
+  xlab("Fraction of ACRs (%)") +
+  ylab("") +
+  facet_wrap(~ group, ncol = 1, strip.position = "left") +  # Single column, labels on top
+  theme(
+    strip.text = element_text(size = 35, face = "bold"),
+    strip.placement = "outside",  # Place labels outside the plot area
+    strip.background = element_rect(fill = rgb(0.8667,0.8667,0.8667, alpha = 0.3), color="#BBBBBB", size=1.5),
+    axis.text.x = element_text(face = "bold", size = 35),  # x-axis text for bottom facet only
+    axis.title.x = element_text(size = 45, face = "bold"),  # Only one x-axis title at the bottom
+    axis.title = element_text(size = 45, face = "bold"),
+    axis.text.y = element_blank(),
+    legend.position = "top",       # Move legend below the plot
+    legend.justification = "center",
+    legend.title = element_blank(),  # Increase legend title size
+    legend.text = element_text(size = 25, face = "bold"),
+    panel.spacing = unit(0.5, "lines")  # Adjust space between facets if needed
+  )
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/Ahyp_ACR_and_Meth_genomic_regions.png", width=15, height=12.2)
+```

@@ -1,0 +1,192 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+plot(cars)
+```
+
+
+```{r}
+library(tidyverse) # for data manipulation
+
+# get input data
+dfpeaks <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_tissue_specific2.csv", sep = ",")
+dfref <- dfpeaks %>% mutate(chr=gsub("_", "", chr))
+dfref_l <- dfref %>% filter(str_detect(tissue, "leaf"))
+dfref_s <- dfref %>% filter(str_detect(tissue, "seedling"))
+
+
+###   Overlap between datasets
+
+# Convert data frames to GenomicRanges objects
+library(GenomicRanges)
+GRref <- makeGRangesFromDataFrame(dfref)
+GRref_l <- makeGRangesFromDataFrame(dfref_l)
+GRref_s <- makeGRangesFromDataFrame(dfref_s)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+# merge overlapping regions into one
+GRref_r <- reduce(GRref)
+GRref_lr <- reduce(GRref_l)
+GRref_sr <- reduce(GRref_s)
+
+library(rtracklayer)
+library(tidyverse)
+
+### Read and process reference genome annotation
+
+gff <- makeTxDbFromGFF("~/Documents/projects/ATAC_seq/data/ref_genomes/Ahypochondriacus_v3_chrX.gff")
+
+annoData <- toGRanges(gff, feature="gene")
+
+
+# Find overlaps between leaf and seedling tissues
+ol <- findOverlapsOfPeaks(GRref_lr, GRref_sr)
+  # must keep the class exactly same as gr1$score, i.e., numeric.
+
+ol
+ol$venn_cnt      # count of overlaps
+ol$peaklist[["GRref_lr///GRref_sr"]]      # list of all peaks and their overlap status
+ol$peaklist[["GRref_lr"]]      # list of peaks and their overlap status from leaf tissue
+
+
+# conversion of overlapping regions to data frames
+library(Repitools)
+library(tidyverse)
+
+# peaks unique to overlap
+dfol <- annoGR2DF(ol$peaklist[["GRref_lr///GRref_sr"]])
+# peaks unique to leaf tissue
+dflr <- annoGR2DF(ol$peaklist[["GRref_lr"]])
+# peaks unique to seedling tissue
+dfsr <- annoGR2DF(ol$peaklist[["GRref_sr"]]) 
+
+dfol <- dfol %>% unnest_wider(peakNames, names_sep = "")
+dflr <- dflr %>% unnest_wider(peakNames, names_sep = "")
+dfsr <- dfsr %>% unnest_wider(peakNames, names_sep = "")
+
+dfref %>% filter(str_detect(tissue, "leaf"))
+dfpeaks %>% distinct(full_sample)
+```
+
+install.packages("venneuler")
+install.packages("rJava")
+
+```{r   creating Venndiagramm for overlap of tissues}
+
+library(rJava)
+library(venneuler)
+
+
+# Extract counts and totals for leaf, seedling, and overlap regions
+leaf_counts <- ol$venn_cnt[3,4]
+
+seedling_counts <- ol$venn_cnt[2,5]
+
+overlap_counts <- unlist(ol$venn_cnt[4,3])
+total_total <- overlap_counts+leaf_counts+seedling_counts
+
+# Calculate percentages for seedling, leaf, and overlap regions
+seed_per=seedling_counts/total_total    #only seedling
+leaf_per=leaf_counts/total_total        #only leaf
+overlap_per=overlap_counts/total_total  #overlap
+#37472/51997 #all seedling
+#41944/51997 #all leaf
+
+# check if everything adds up
+seedling_counts+leaf_counts+overlap_counts
+
+custom_colors <- c("#EE7733", "#FF6699")
+custom_colors <- c("#EE3377", "#CC3311")
+custom_colors <- c("#0077BB", "#009988")
+custom_colors <- c("#CC77AA","#AADD88")
+
+c("#FFDD88","#FFCC66","#FFEE99","#FFDD55","#FFE4AA", "#FFAA66","#FFBB88")
+c("#FF9988","#FF7766","#EE8877","#DD8877","#FFAAAA","#FFB3A7","#DD6677","#FFCCCC","#FF8C94","#FFB3B3", "#DD6655", "#FF6699","#DD99AA")
+
+
+# plot
+pdf("~/Documents/projects/ATAC_seq/figures/ahypv3/Ahyp_tissue_peak_overlap_color_corr_pastel_adjustedcolors.pdf")
+plot(venneuler(c(seedling=seed_per[[1]], leaf=leaf_per[[1]], "leaf&seedling"=overlap_per[[1]])), col=custom_colors)
+while (!is.null(dev.list()))  dev.off()
+
+
+```
+
+
+
+#####    OLD CODE
+
+
+
+```{r}
+ol.anno <- annotatePeakInBatch(ol$peaklist[["GRref_lr///GRref_sr"]], AnnotationData = annoData, output="overlapping", maxgap=2000)
+ol.anno
+
+lr.anno <- annotatePeakInBatch(ol$peaklist[["GRref_lr"]], AnnotationData = annoData, output="overlapping", maxgap=2000)
+lr.anno
+
+sr.anno <- annotatePeakInBatch(ol$peaklist[["GRref_sr"]], AnnotationData = annoData, output="overlapping", maxgap=2000)
+sr.anno
+```
+
+```{r}
+library(data.table)
+
+aCR_or<-assignChromosomeRegion(ol$peaklist[["GRref_lr///GRref_sr"]], nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=100), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_or <- data.frame(aCR_or$percentage)
+setDT(dfaCR_or, keep.rownames = TRUE)
+dfaCR_or %>% ggplot(aes(x=rn, y=aCR_or.percentage, fill=rn)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust=1))
+dfaCR_or %>% ggplot(aes(x="", y=aCR_or.percentage, fill=rn)) + geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) + theme_void()
+aCR_or$percentage
+
+
+aCR_lr<-assignChromosomeRegion(ol$peaklist[["GRref_lr"]], nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=100), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_lr <- data.frame(aCR_lr$percentage)
+setDT(dfaCR_lr, keep.rownames = TRUE)
+dfaCR_lr %>% ggplot(aes(x=rn, y=aCR_lr.percentage, fill=rn)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust=1))
+dfaCR_lr %>% ggplot(aes(x="", y=aCR_lr.percentage, fill=rn)) + geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) + theme_void()
+aCR_lr$percentage
+
+
+aCR_sr<-assignChromosomeRegion(ol$peaklist[["GRref_sr"]], nucleotideLevel=FALSE, 
+                            proximal.promoter.cutoff=c(upstream=2000, downstream=100), immediate.downstream.cutoff=c(upstream=0, downstream=2000),
+                            precedence=c("Promoters", "immediateDownstream", "fiveUTRs", "threeUTRs", "Exons", "Introns"), 
+                            TxDb=gff)
+
+dfaCR_sr <- data.frame(aCR_sr$percentage)
+setDT(dfaCR_sr, keep.rownames = TRUE)
+dfaCR_sr %>% ggplot(aes(x=rn, y=aCR_sr.percentage, fill=rn)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust=1))
+dfaCR_sr %>% ggplot(aes(x="", y=aCR_sr.percentage, fill=rn)) + geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) + theme_void()
+aCR_sr$percentage
+```
+
+```{r}
+library("UpSetR")
+```
+
+```{r}
+length(unique(dfref$full_sample))
+upset(dfref$fullsample, nsets=length(unique(dfref$full_sample)))
+```

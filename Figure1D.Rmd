@@ -1,0 +1,622 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+### using families
+
+```{r}
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+
+setwd("~/Documents/projects/ATAC_seq/data/")
+#dfpeaks <- read.csv("Peaks_with_sample_info_tcorrected.csv")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+dfref <- dfpeaks %>% filter(str_detect(Accession, "PI558499")) 
+#dfref <- dfref %>% mutate(across("chr", str_replace, "Scaffold_", "chr"))
+#dfref <- dfpeaks %>% filter(str_detect(tissue, "leaf"))
+dfpeaks %>% distinct(species)
+
+
+library(GenomicRanges)
+GRref <- makeGRangesFromDataFrame(dfref)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref <- reduce(GRref)
+
+dfref <- as.data.frame(GRref)
+
+library(tidyverse)
+
+setwd("~/Documents/projects/ATAC_seq/data/TEanno")
+dftrans <- read.delim("Ahypochondriacus_v3.fasta.mod.EDTA.TEanno.split.gff3", header=F, comment.char="#")
+colnames(dftrans) <- c('chr', 'program','family','start2', 'end2', 'length', 'strand', 'dot', 'mode')
+
+dftrans_short <- dftrans %>% filter(!family %in% c("repeat_fragment", "rRNA_gene","tRNA_SINE_retrotransposon", "snRNA")) %>% 
+  transmute(chr=chr, strand=strand, start=start2, end=end2, width=end-start , family=family) %>% mutate(chr=gsub("_","", chr))
+
+dftrans_short <- dftrans_short %>% mutate(ID=paste(family, row_number(), sep = "_"))
+dftrans_short %>% distinct(family)
+
+
+TEanno <- toGRanges(dftrans_short, feature="family")
+TEanno
+# rename rows so that TE positions are distinct and easly recognizable
+names(TEanno) <- dftrans_short$ID
+
+# find overlap betwenn ACRs and TEs
+ol.te <- annotatePeakInBatch(GRref, AnnotationData = TEanno, output="overlapping", maxgap=0)
+ol.te
+
+# make overlap GRange into dataframe
+library(Repitools)
+te_anno <- annoGR2DF(ol.te)
+te_anno %>% drop_na()
+te_anno %>% distinct(feature)
+###write.csv(te_anno , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/TE_ACR_overlap.csv")
+
+
+# TE family bp count
+dftrans_fams_OCR_bps <- te_anno %>% transmute(feature=str_replace(feature, "_\\d+$", ""), width=width) %>% drop_na() %>% group_by(feature) %>% summarise(count=sum(width))
+dftrans_fams_OCR_bps %>% distinct(feature)
+#dftrans_fams_OCR_bps2 <- dftrans_fams_OCR_bps %>% filter(!feature %in% c("unknown", "chr", "tRNA", "snRNA", "rRNA", "TE"))
+
+#missing_te <- data.frame(feature="DNA/hAT-Ac", count=0)
+#dftrans_fams_OCR_bps2 <- rbind(dftrans_fams_OCR_bps2, missing_te)
+#dftrans_fams_OCR_bps2 <- dftrans_fams_OCR_bps2 %>% arrange(feature)
+
+#dftrans_fams_OCR_bps2 %>% summarise(sum(count))
+
+OCR_bp_total <- dfref %>% summarise(sum(width))
+
+dftrans_short %>% distinct(family)
+###write.csv(dftrans_short , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/TE_list_short_version.csv")
+dftrans_fams_bps <- dftrans_short %>% group_by(family) %>% summarize(count=sum(width))
+###write.csv(dftrans_plotting , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/TE_families_genome_fraction.csv")
+
+#dftrans_fams_bps <- dftrans %>% filter(!str_detect(Transposon, c("TE_|scaffold_|chr_|tRNA|snRNA|rRNA"))) %>% filter(Transposon!="unknown") %>% mutate(width=end2-start2) %>% group_by(Transposon) %>% summarize(count=sum(width))
+
+
+
+# TE fams in whole genome VS TE fams in openchromatin
+
+p_hyper <- function(i, tail) {
+
+m <- dftrans_fams_bps[[i,2]]  # TE fam bp in genome
+n <- as.integer(434863491-dftrans_fams_bps[[i,2]])  # bp not in TE fam
+k <- OCR_bp_total[[1]] # OCR bp
+q <- dftrans_fams_OCR_bps[[i,2]] # TE fam bp in OCR
+
+result <- phyper(q, m, n, k, lower.tail = tail)
+
+return(result)
+}
+
+dftrans_fams_bps[[1,2]]+as.integer(434863491-dftrans_fams_bps[[1,2]])==434863491
+
+a <- 1:nrow(dftrans_fams_bps)
+
+tail<-TRUE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- data.frame(probability_lower=phyper_OCR)
+
+tail<-FALSE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- cbind(result_df, data.frame(probability_higher=phyper_OCR))
+
+
+print(phyper_OCR)
+
+# for whole genome
+dftrans_plotting <- dftrans_fams_OCR_bps %>% mutate(genome_count=dftrans_fams_bps$count) %>% mutate(expectation=(genome_count*23071669)/434863491, probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+# for both strands
+dftrans_plotting <- dftrans_fams_OCR_bps %>% mutate(genome_count=dftrans_fams_bps$count) %>% mutate(expectation=(genome_count*46143338)/434863491, probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+###write.csv(dftrans_plotting , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACR_TE_probabilities.csv")
+
+total_te_bps <- dftrans_fams_bps %>% summarise(sum(count))
+((total_te_bps*46143338)/434863491)/total_te_bps
+
+dftransplotting2 <- dftrans_plotting %>%
+  mutate(superfeature = as.factor(
+    if_else(str_detect(feature, "retrotransposon"), "Retrotransposon", "DNA Transposon"))) %>%
+  mutate(OCR_depleted=if_else(probability_lower<=0.05, count, 0), 
+         OCR_enriched=if_else(probability_lower>0.05, count, 0)) %>%
+  mutate(OCR_depleted=(OCR_depleted/genome_count)*100, 
+         OCR_enriched=(OCR_enriched/genome_count)*100) %>% 
+  transmute(feature=feature, 
+            superfeature=superfeature, 
+            fraction=if_else(OCR_depleted > 0, OCR_depleted,OCR_enriched), 
+            state=if_else(OCR_depleted > 0, "Depleted", "Enriched")) %>% 
+  mutate(feature = sub("DNA/", "", feature)) %>%
+  mutate(feature=str_replace(feature, "/", "--")) %>% 
+  mutate(tmp_name=if_else(str_detect(feature, "_transposon"), str_remove(feature, "_transposon"), 
+                          if_else(str_detect(feature, "_retrotransposon"), str_remove(feature, "_retrotransposon"), 
+                                  if_else(str_detect(feature, "helitron"), str_replace(feature, "helitron", "Helitron"), 
+                                          if_else(str_detect(feature, "polinton"), str_replace(feature, "polinton",  "Polinton"), "X"))))) %>%
+  mutate(
+    superfamily = ifelse(
+      str_detect(tmp_name, "_"),
+      sub("^(.*)_(.*)$", "\\2_\\1", tmp_name),
+      tmp_name
+    )
+  )
+
+dfsave <- dftransplotting2 %>% dplyr::select(-c(feature, superfeature, tmp_name))
+write_csv(dfsave, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure1D")
+
+  # start of actual plotting
+dftransplotting2 %>% ggplot(aes(x = superfamily, y = fraction, fill = state)) +
+  geom_col(position = "dodge", width = 0.7, color = "black", alpha=1) +
+  scale_fill_manual(
+    values = c("Depleted" = "#77AADD", "Enriched" = "#FF7766")) +  #values = c("Depleted" = "#0077BB", "Enriched" = "#CC3311")) 
+  facet_wrap(~superfeature, scales = "free_x", ncol = 2) +  
+  geom_hline(yintercept = 5, linetype = "dashed", color = "black", size = 2.5) +
+  theme(#text = element_text(family = "Arial"),
+        axis.text.x = element_text(size=35, angle=65, hjust=1, face = "bold"),
+        axis.title=element_text(size=55,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  theme(
+    #text = element_text(family = "Arial"), 
+    strip.text = element_text(size = 60, face = "bold"),
+    strip.background = element_rect(fill = rgb(0.8667,0.8667,0.8667, alpha = 0.3), color="#BBBBBB", size=1.5)) +
+  guides(fill=guide_legend()) + 
+  theme(
+    #text = element_text(family = "Arial"), 
+    legend.title=element_blank(), 
+    legend.text=element_text(size=35, face = "bold")) + 
+  xlab("TE families") + 
+  ylab("Fraction of feature members in ACRs (%)") +
+  ylim(0,100)
+
+c("#FF9988","#FF7766","#EE8877","#DD8877","#FFAAAA","#FFB3A7","#DD6677","#FFCCCC","#FF8C94","#FFB3B3", "#DD6655", "#FF6699","#DD99AA")
+c("#66AADD","#99DDEE","#77BBDD","#88CCEE","#99BBEE","#AACCEE","#77AADD","#88B8E8","#66B2E8","#99C2FF","#AACDFF","#85C1E9")
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/nature_comm_publication/figures/TE_superfamily_enrichment_in_ACRs_100y.pdf", width=25, height=20) 
+
+install.packages("svglite")
+library(svglite)
+
+dftrans %>% distinct(family)
+dftrans2 <- dftrans %>% filter(str_detect(chr, "chr"))%>% mutate(classification=str_extract(mode, "(?<=classification=)[^;]+(?=;sequence_ontology)")) 
+dftrans2 %>% distinct(classification)
+
+
+
+# hAT, Mutator and Mule, Helitrons, Ty1 LTR, Ty3, LTR retrotrransposons, 
+# R2 retrotransposons, Line-1, SINE retrotransposons, 
+#
+```
+
+
+```{r}
+dftrans2 <- dftrans %>% filter(str_detect(chr, "chr"))%>% mutate(classification=str_extract(mode, "(?<=classification=)[^;]+(?=;sequence_ontology)")) 
+
+dftrans3 <- dftrans2 %>% filter(!classification %in% c("unknown", "tRNA", "rRNA", "snRNA")) %>% 
+  transmute(chr=chr, strand=strand, start=start2, end=end2, width=end-start , family=classification) %>% mutate(chr=gsub("_","", chr))
+
+
+dftrans2 %>% distinct(classification)
+
+```
+
+
+### newest version 
+
+```{r}
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+
+setwd("~/Documents/projects/ATAC_seq/data/")
+#dfpeaks <- read.csv("Peaks_with_sample_info_tcorrected.csv")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+dfref <- dfpeaks %>% filter(str_detect(Accession, "PI558499")) 
+#dfref <- dfref %>% mutate(across("chr", str_replace, "Scaffold_", "chr"))
+#dfref <- dfpeaks %>% filter(str_detect(tissue, "leaf"))
+dfpeaks %>% distinct(species)
+
+
+library(GenomicRanges)
+GRref <- makeGRangesFromDataFrame(dfref)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref <- reduce(GRref)
+
+dfref <- as.data.frame(GRref)
+
+library(tidyverse)
+
+setwd("~/Documents/projects/ATAC_seq/data/TEanno")
+dftrans <- read.delim("Ahypochondriacus_v3.fasta.mod.EDTA.TEanno.split.gff3", header=F, comment.char="#")
+colnames(dftrans) <- c('chr', 'program','family','start2', 'end2', 'length', 'strand', 'dot', 'mode')
+
+#split mode column
+dftrans <- dftrans %>% filter(str_detect(chr, "chr"))%>% mutate(classification=str_extract(mode, "(?<=classification=)[^;]+(?=;sequence_ontology)")) 
+
+dftrans_short <- dftrans %>% filter(!classification %in% c("unknown", "tRNA", "rRNA", "snRNA")) %>% 
+  transmute(chr=chr, strand=strand, start=start2, end=end2, width=end-start , family=classification) %>% mutate(chr=gsub("_","", chr))
+
+dftrans_short <- dftrans_short %>% mutate(ID=paste(family, row_number(), sep = "_"))
+dftrans_short %>% distinct(family)
+
+
+TEanno <- toGRanges(dftrans_short, feature="family")
+TEanno
+# rename rows so that TE positions are distinct and easly recognizable
+names(TEanno) <- dftrans_short$ID
+
+# find overlap betwenn ACRs and TEs
+ol.te <- annotatePeakInBatch(GRref, AnnotationData = TEanno, output="overlapping", maxgap=0)
+ol.te
+
+# make overlap GRange into dataframe
+library(Repitools)
+te_anno <- annoGR2DF(ol.te)
+te_anno %>% drop_na()
+###write.csv(te_anno , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/TE_ACR_overlap.csv")
+
+
+# TE family bp count
+dftrans_fams_OCR_bps <- te_anno %>% transmute(feature=str_replace(feature, "_.*", ""), width=width) %>% drop_na() %>% group_by(feature) %>% summarise(count=sum(width))
+
+dftrans_fams_OCR_bps2 <- dftrans_fams_OCR_bps %>% filter(!feature %in% c("unknown", "chr", "tRNA", "snRNA", "rRNA", "TE"))
+
+missing_te <- data.frame(feature="DNA/hAT-Ac", count=0)
+dftrans_fams_OCR_bps2 <- rbind(dftrans_fams_OCR_bps2, missing_te)
+dftrans_fams_OCR_bps2 <- dftrans_fams_OCR_bps2 %>% arrange(feature)
+
+dftrans_fams_OCR_bps2 %>% summarise(sum(count))
+
+OCR_bp_total <- dfref %>% summarise(sum(width))
+
+dftrans_short %>% distinct(family)
+###write.csv(dftrans_short , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/TE_list_short_version.csv")
+dftrans_fams_bps <- dftrans_short %>% group_by(family) %>% summarize(count=sum(width))
+###write.csv(dftrans_plotting , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/TE_families_genome_fraction.csv")
+
+#dftrans_fams_bps <- dftrans %>% filter(!str_detect(Transposon, c("TE_|scaffold_|chr_|tRNA|snRNA|rRNA"))) %>% filter(Transposon!="unknown") %>% mutate(width=end2-start2) %>% group_by(Transposon) %>% summarize(count=sum(width))
+
+
+
+# TE fams in whole genome VS TE fams in openchromatin
+
+p_hyper <- function(i, tail) {
+
+m <- dftrans_fams_bps[[i,2]]  # TE fam bp in genome
+n <- as.integer(434863491-dftrans_fams_bps[[i,2]])  # bp not in TE fam
+k <- OCR_bp_total[[1]] # OCR bp
+q <- dftrans_fams_OCR_bps2[[i,2]] # TE fam bp in OCR
+
+result <- phyper(q, m, n, k, lower.tail = tail)
+
+return(result)
+}
+
+dftrans_fams_bps[[1,2]]+as.integer(434863491-dftrans_fams_bps[[1,2]])==434863491
+
+a <- 1:nrow(dftrans_fams_bps)
+
+tail<-TRUE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- data.frame(probability_lower=phyper_OCR)
+
+tail<-FALSE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- cbind(result_df, data.frame(probability_higher=phyper_OCR))
+
+
+print(phyper_OCR)
+
+# for whole genome
+dftrans_plotting <- dftrans_fams_OCR_bps2 %>% mutate(genome_count=dftrans_fams_bps$count) %>% mutate(expectation=(genome_count*23071669)/434863491, probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+# for both strands
+dftrans_plotting <- dftrans_fams_OCR_bps2 %>% mutate(genome_count=dftrans_fams_bps$count) %>% mutate(expectation=(genome_count*46143338)/434863491, probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+###write.csv(dftrans_plotting , "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACR_TE_probabilities.csv")
+
+total_te_bps <- dftrans_fams_bps %>% summarise(sum(count))
+((total_te_bps*46143338)/434863491)/total_te_bps
+
+dftransplotting2 <- dftrans_plotting %>%
+  mutate(superfeature = as.factor(
+    if_else(str_detect(feature, "Helitron"), "DNA Transposon", 
+    if_else(str_detect(feature, "MITE"), "DNA Transposon",
+    if_else(str_detect(feature, "DNA"), "DNA Transposon", "Retrotransposon")))
+  )) %>%
+  mutate(OCR_depleted=if_else(probability_lower<=0.05, count, 0), 
+         OCR_enriched=if_else(probability_lower>0.05, count, 0)) %>%
+  mutate(OCR_depleted=(OCR_depleted/genome_count)*100, 
+         OCR_enriched=(OCR_enriched/genome_count)*100) %>% 
+  transmute(feature=feature, 
+            superfeature=superfeature, 
+            fraction=if_else(OCR_depleted > 0, OCR_depleted,OCR_enriched), 
+            state=if_else(OCR_depleted > 0, "Depleted", "Enriched")) %>% 
+  mutate(feature = sub("DNA/", "", feature)) %>%
+  mutate(feature=str_replace(feature, "/", "--"))
+
+  # start of actual plotting
+dftransplotting2 %>% ggplot(aes(x = feature, y = fraction, fill = state)) +
+  geom_col(position = "dodge", width = 0.7, color = "black", alpha=1) +
+  scale_fill_manual(
+    values = c("Depleted" = "#77AADD", "Enriched" = "#FF7766")) +  #values = c("Depleted" = "#0077BB", "Enriched" = "#CC3311")) 
+  facet_wrap(~superfeature, scales = "free_x", ncol = 2) +  
+  geom_hline(yintercept = 5, linetype = "dashed", color = "black", size = 2.5) +
+  theme(axis.text.x = element_text(size=35, angle=65, hjust=1, face = "bold"),
+        axis.title=element_text(size=55,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  theme(strip.text = element_text(size = 60, face = "bold"),
+        strip.background = element_rect(fill = rgb(0.8667,0.8667,0.8667, alpha = 0.3), color="#BBBBBB", size=1.5)) +
+  guides(fill=guide_legend()) + 
+  theme(legend.title=element_blank(), 
+        legend.text=element_text(size=35, face = "bold")) + 
+  xlab("TE families") + 
+  ylab("Fraction of feature members in OCRs (%)") +
+  ylim(0,75)
+
+c("#FF9988","#FF7766","#EE8877","#DD8877","#FFAAAA","#FFB3A7","#DD6677","#FFCCCC","#FF8C94","#FFB3B3", "#DD6655", "#FF6699","#DD99AA")
+c("#66AADD","#99DDEE","#77BBDD","#88CCEE","#99BBEE","#AACCEE","#77AADD","#88B8E8","#66B2E8","#99C2FF","#AACDFF","#85C1E9")
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/TE_enrichment_in_OCRS_percent_stacked_wraped_newanno_greyfacet_dedup.png", width=25, height=20) 
+
+
+dftrans %>% distinct(family)
+dftrans2 <- dftrans %>% filter(str_detect(chr, "chr"))%>% mutate(classification=str_extract(mode, "(?<=classification=)[^;]+(?=;sequence_ontology)")) 
+dftrans2 %>% distinct(classification)
+
+# hAT, Mutator and Mule, Helitrons, Ty1 LTR, Ty3, LTR retrotrransposons, 
+# R2 retrotransposons, Line-1, SINE retrotransposons, 
+#
+```
+
+
+
+```{r hyper geometric test with bps over whole genome; current version}
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+dftrans_fams_OCR_bps2 <- dftrans_fams_OCR_bps %>% full_join(dftrans_fams_bps, by=c("feature"="family")) %>% transmute(family=feature, count=count.x) %>% mutate_all(~replace_na(., 0)) %>% arrange(family) %>% dplyr::slice(1:(n() - 4))
+dftrans_fams_bps2 <- dftrans_fams_OCR_bps %>% full_join(dftrans_fams_bps, by=c("feature"="family")) %>% transmute(family=feature, count=count.y) %>% mutate_all(~replace_na(., 0)) %>% arrange(family) %>% dplyr::slice(1:(n() - 4))
+tmp <- dftrans_fams_OCR_bps %>% filter(str_detect(feature, "Simple"))
+
+
+dftrans_fams_bps <- dftrans_short %>% group_by(family) %>%
+  summarize(count = sum(width))
+
+missing_te <- data.frame(feature="DNA/hAT-Ac", count=0)
+dftrans_fams_OCR_bps_all <- rbind(dftrans_fams_OCR_bps, missing_te)
+dftrans_fams_OCR_bps_all <- dftrans_fams_OCR_bps_all %>% arrange(feature)
+
+# TE fams in whole genome VS TE fams in openchromatin
+
+p_hyper <- function(i, tail) {
+
+m <- dftrans_fams_bps[[i,2]]  # TE fam bp in genome
+n <- as.integer(403994491-dftrans_fams_bps[[i,2]])  # bp not in TE fam
+k <- OCR_bp_total[[1]] # OCR bp
+q <- dftrans_fams_OCR_bps_all[[i,2]] # TE fam bp in OCR
+
+result <- phyper(q, m, n, k, lower.tail = tail)
+
+return(result)
+}
+
+dftrans_fams_bps[[1,2]]+as.integer(403994491-dftrans_fams_bps[[1,2]])==403994491
+
+a <- 1:nrow(dftrans_fams_bps)
+
+tail<-TRUE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- data.frame(probability_lower=phyper_OCR)
+
+tail<-FALSE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- cbind(result_df, data.frame(probability_higher=phyper_OCR))
+
+
+print(phyper_OCR)
+
+# for whole genome
+test <- dftrans_fams_OCR_bps_all %>% mutate(genome_count=dftrans_fams_bps$count) %>% mutate(expectation=(genome_count*23071669)/403994491, probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+#write.csv(test, "~/Documents/projects/ATAC_seq/data/peak_calling/dedup/OCR_TE_probabilities.csv")
+
+# for only TEs
+a <- sum(dftrans_fams_OCR_bps2$count)
+sum(dftrans_fams_OCR_bps2$genome_count)
+test2 <- dftrans_fams_OCR_bps2 %>% mutate(genome_count=as.numeric(dftrans_fams_bps2$count), count=as.numeric(count)) 
+test2 %>% mutate(expectation=(genome_count*sum(test$count))/sum(test$genome_count), exp_percent=expectation/genome_count*100, probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+
+#write_csv(test, "~/Downloads/TE_family_probabilities.csv")
+
+
+test %>% filter(family!="Unknown") %>% filter(family!="Simple_repeat") %>% filter(family!="Single_bp_repeat") %>% filter(family!="rRNA") %>% filter(family!="tRNA") %>%
+  mutate(family = str_replace(family, "/", "--")) %>%
+  mutate(OCR_depleted=if_else(probability_lower<=0.05, count, 0), OCR_enriched=if_else(probability_lower>0.05, count, 0)) %>%
+  mutate(OCR_depleted=(OCR_depleted/genome_count)*100, OCR_enriched=(OCR_enriched/genome_count)*100) %>% 
+  transmute(family=family, depleted=OCR_depleted, enriched=OCR_enriched) %>% 
+  gather(key = "variable", value = "value", -family) %>% 
+  ggplot(aes(x=family, y=value, fill=variable)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = 6, linetype = "dashed", color = "black", size = 2.5) +
+  #geom_hline(yintercept = 5.86, linetype = "dashed", color = "black", size=2.5) +
+  theme(axis.text.x = element_text(face="bold", size=35, angle = 65, hjust=1)) +
+  theme(axis.text.x = element_text(size=35, angle=65, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  #scale_x_discrete(name ="genomic_regions", limits=c("Promoters","Exons","Introns","immediateDownstream", "Intergenic.Region")) + 
+  guides(fill=guide_legend()) + 
+  theme(legend.title=element_text(size=45, face = "bold"), legend.text=element_text(size=35, face = "bold")) + 
+  theme(legend.title = element_blank()) +
+  #theme(legend.position = "none") +
+  xlab("TE families") + 
+  ylab("Fraction of family members in OCRs (%)")
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/updated/TE_enrichment_in_OCRS_percent_stacked_test.png", width=25, height=20) 
+
+
+test %>% filter(feature!="Unknown") %>% filter(feature!="Simple_repeat") %>% filter(feature!="Single_bp_repeat") %>% filter(feature!="rRNA") %>% filter(feature!="tRNA") %>% filter(feature!="snRNA") %>%filter(feature!="unknown") %>%
+  mutate(superfeature = as.factor(
+    if_else(str_detect(feature, "Helitron"), "DNA Transposon", 
+    if_else(str_detect(feature, "MITE"), "DNA Transposon",
+    if_else(str_detect(feature, "DNA"), "DNA Transposon", "Retrotransposon")))
+  )) %>%
+  mutate(OCR_depleted=if_else(probability_lower<=0.05, count, 0), OCR_enriched=if_else(probability_lower>0.05, count, 0)) %>%
+  mutate(OCR_depleted=(OCR_depleted/genome_count)*100, OCR_enriched=(OCR_enriched/genome_count)*100) %>% 
+  transmute(feature=feature, superfeature=superfeature, fraction=if_else(OCR_depleted > 0, OCR_depleted,OCR_enriched), state=if_else(OCR_depleted > 0, "depleted", "enriched")) %>% 
+  mutate(feature = sub("DNA/", "", feature)) %>%
+  mutate(feature=str_replace(feature, "/", "--")) %>%
+  #mutate(feature = sub("Unknown", "LTR/Unknown", feature)) %>%
+  ggplot(aes(x = feature, y = fraction, fill = state)) +
+  geom_col(position = "dodge", width = 0.7, color = "black") +
+  facet_wrap(~superfeature, scales = "free", ncol = 2) +  # Adjust ncol based on your preference
+  geom_hline(yintercept = 6, linetype = "dashed", color = "black", size = 2.5) +
+  theme(axis.text.x = element_text(size=35, angle=65, hjust=1, face = "bold"),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  theme(strip.text = element_text(size = 45, face = "bold")) +
+  guides(fill=guide_legend()) + 
+  theme(legend.title=element_text(size=45, face = "bold"), legend.text=element_text(size=35, face = "bold")) + 
+  theme(legend.title = element_blank()) +
+  xlab("TE families") + 
+  ylab("Fraction of feature members in OCRs (%)") +
+  ylim(0,75)
+
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/TE_enrichment_in_OCRS_percent_stacked_wraped4.png", width=25, height=20) 
+
+
+
+test %>% filter(feature!="Unknown") %>% filter(feature!="Simple_repeat") %>% filter(feature!="Single_bp_repeat") %>% filter(feature!="rRNA") %>% filter(feature!="tRNA") %>% filter(feature!="snRNA") %>%filter(feature!="unknown") %>%
+  mutate(superfeature = as.factor(
+    if_else(str_detect(feature, "Helitron"), "DNAtransposon", 
+    if_else(str_detect(feature, "DNA"), "DNAtransposon", "Retrotransposon"))
+  )) %>%
+  mutate(OCR_depleted=if_else(probability_lower<=0.05, count, 0), OCR_enriched=if_else(probability_lower>0.05, count, 0)) %>%
+  mutate(OCR_depleted=(OCR_depleted/genome_count)*100, OCR_enriched=(OCR_enriched/genome_count)*100) %>% 
+  transmute(feature=feature, superfeature=superfeature, fraction=if_else(OCR_depleted > 0, OCR_depleted,OCR_enriched), state=if_else(OCR_depleted > 0, "depleted", "enriched")) %>% 
+  mutate(feature = sub("DNA/", "", feature)) %>%
+  mutate(feature=str_replace(feature, "/", "--")) %>%
+  #mutate(feature = sub("Unknown", "LTR/Unknown", feature)) %>%
+  #mutate(feature=str_replace(feature,"\\b[[:alpha:]]\\b","SINE/U")) %>%
+  ggplot(aes(x = feature, y = fraction, fill = state)) +
+  geom_col(position = "dodge", width = 0.7, color = "black") +
+  ylim(0,40) +
+  facet_wrap(~superfeature, scales = "free", ncol = 2) +  # Adjust ncol based on your preference
+  geom_hline(yintercept = 6, linetype = "dashed", color = "black", size = 2.5) +
+  theme(axis.text.x = element_text(size=35, angle=65, hjust=1, face = "bold"),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  theme(strip.text = element_text(size = 45, face = "bold")) +
+  guides(fill=guide_legend()) + 
+  theme(legend.title=element_text(size=45, face = "bold"), legend.text=element_text(size=35, face = "bold")) + 
+  theme(legend.title = element_blank()) +
+  xlab("TE families") + 
+  ylab("Fraction of feature members in OCRs (%)")
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/TE_enrichment_in_OCRS_percent_stacked_wraped3.png", width=25, height=20) 
+
+print("end")
+
+print("stop it")
+
+```
+
+
+
+```{r hypergeometric test with bp / whole TEs based on the total TEs}
+
+# the goal is to determine whether the individual TE families are enriched in open chromatin compared to the total amount of TEs
+
+  # for bp: 
+p_hyper <- function(i, tail) {
+            # the total amount of bps of the specific TE family is the success pool
+m <- dftrans_fams_bps[[i,2]]
+            # the total amount of the other TE families bps is the total population
+n <- as.integer(sum(dftrans_fams_bps[,2])-dftrans_fams_bps[[i,2]])
+            # the amount of TE bps in open chromatin is the sample size
+k <- sum(dftrans_fams_OCR_bps[,2])
+            # the amount of bps of the specific TE family in open chromatin is the success rate
+q <- dftrans_fams_OCR_bps[[i,2]]
+
+result <- phyper(q, m, n, k, lower.tail = tail)
+
+return(result)
+}
+
+
+
+a <- 1:nrow(dftrans_fams_bps)
+
+tail<-TRUE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- data.frame(probability_lower=phyper_OCR)
+
+tail<-FALSE
+phyper_OCR <- sapply(a, p_hyper, tail)
+result_df <- cbind(result_df, data.frame(probability_higher=phyper_OCR))
+
+
+print(result_df)
+
+test2 <- dftrans_fams_OCR_bps %>% mutate(genome_count=dftrans_fams_bps$count) %>% mutate(expectation=(genome_count*23684611)/sum(genome_count), probability_lower=result_df$probability_lower, probaility_higher=result_df$probability_higher)
+
+test2 %>% filter(family!="Unknown") %>% mutate(results=if_else(probability_lower<=0.05, "depleted", "enriched")) %>% ggplot(aes(x=family, colour=results)) + geom_col(aes(y=count, fill = results), position = "dodge", width = 0.4) + 
+  theme(axis.text.x = element_text(face="bold", size=35, angle = 65, hjust=1)) +
+  theme(axis.text.x = element_text(size=35, angle=65, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  guides(fill=guide_legend()) + 
+  theme(legend.title=element_text(size=45, face = "bold"), legend.text=element_text(size=35, face = "bold")) + 
+  theme(legend.title = element_blank()) +
+  xlab("TE families") + 
+  ylab("Number of family members in OCRs")
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/updated/TE_enrichment_in_OCRS_TE_wide.png", width=25, height=20) 
+
+
+
+  # for number of TEs: 
+            # the total amount of TEs is the total population
+            # the total amount of TEs of the specific TE family is the success pool
+            # the amount of TEs in open chromatin is the sample size
+                    # needs overlap of 80% / 90% / 100%
+            # the amount of bps of the specific TE family in open chromatin is the success rate
+                    # needs overlap of 80% / 90% / 100%
+
+dftrans_tmp <- dftrans %>% filter(str_detect(chr, "Scaffold")) %>% mutate(width=end2-start2)
+trans_bps <- dftrans_tmp %>% summarise(count=sum(width))
+
+OCR_w_TE_bp <- te_length %>% summarise(count=sum(TE_length))
+
+m <- trans_bps[[1]]  # TE fam bp in genome
+n <- as.integer(403994491-trans_bps[[1]] )  # bp not in TE fam
+k <- OCR_bp_total[[1]] # OCR bp
+q <- OCR_w_TE_bp[[1]] # TE fam bp in OCR
+
+result <- phyper(q, m, n, k, lower.tail = TRUE)
+print(result)
+
+(240915396*23684611)/403994491
+
+```

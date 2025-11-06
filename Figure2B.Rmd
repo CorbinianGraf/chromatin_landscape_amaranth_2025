@@ -1,0 +1,189 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(agricolae)
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+library(Repitools)
+library(rtracklayer)
+
+```
+
+
+
+```{r  expression between open & closed chromatin}
+# get data
+
+dfpeaks <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+dfref<- dfpeaks %>% mutate(chr=gsub("_", "", chr))
+dfref_l <- dfref %>% filter(str_detect(tissue, "leaf"))
+dfref_s <- dfref %>% filter(str_detect(tissue, "seedling"))
+
+###   Overlap between datasets
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref_l <- makeGRangesFromDataFrame(dfref_l)
+GRref_s <- makeGRangesFromDataFrame(dfref_s)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref_lr <- reduce(GRref_l)
+GRref_sr <- reduce(GRref_s)
+
+library(rtracklayer)
+library(tidyverse)
+
+# anotated genome
+library(txdbmaker)
+gff <- makeTxDbFromGFF("~/Documents/projects/ATAC_seq/data/ref_genomes/Ahypochondriacus_v3_chrX.gff")
+
+
+# into gRange object
+annoData <- toGRanges(gff, feature="gene")
+annoData
+
+
+# overlaps between genes and peaks with a up to 2000bp gap allowed for Promotor region
+ol_lr <- annotatePeakInBatch(GRref_lr, AnnotationData = annoData, output="overlapping", maxgap=2000)
+
+ol_sr <- annotatePeakInBatch(GRref_sr, AnnotationData = annoData, output="overlapping", maxgap=2000)
+
+library(Repitools)
+open_leaf <- annoGR2DF(ol_lr)
+open_seed <- annoGR2DF(ol_sr)
+
+
+# get list of all unique open genes
+library(tidyverse)
+open_lg <- open_leaf %>% drop_na() %>% transmute(genes=feature) %>% unique()
+open_sg <- open_seed %>% drop_na() %>% transmute(genes=feature) %>% unique()
+
+
+# expression data
+expression <- read.csv("~/Documents/projects/ATAC_seq/data/expression_analysis/all_tissue_expression_2025annotation.csv", sep = "\t")
+expression <- expression %>% mutate(GeneID=gene_id)
+
+
+exp_mean <- expression %>% group_by(GeneID) %>% summarise_at(vars(matches("tpm")), mean)
+exp_mean_s <- exp_mean %>% transmute(genes=GeneID, tpm=tpm) 
+exp_mean_g <- exp_mean %>% transmute(genes=GeneID) 
+
+
+# filter for expression of open tissue specific genes
+olg_exp <- open_lg %>% left_join(exp_mean_s) 
+colnames(olg_exp) <- c("genes", "leaf_open")
+osg_exp <- open_sg %>% left_join(exp_mean_s)
+colnames(osg_exp) <- c("genes", "seedling_open")
+
+
+# list of all genes + which ones are open in which tissue
+tissue_exp <- exp_mean_g %>% left_join(olg_exp) %>% left_join(osg_exp)
+
+
+# filter for genes that are closed in the respectiv tisssue
+leaf_closed <- tissue_exp %>% filter(is.na(leaf_open)) %>% transmute(genes=genes)
+seed_closed <- tissue_exp %>% filter(is.na(seedling_open)) %>% transmute(genes=genes)
+
+
+lc_exp <- leaf_closed %>% left_join(exp_mean_s)
+colnames(lc_exp) <- c("genes", "leaf_closed")
+sc_exp <- seed_closed %>% left_join(exp_mean_s)
+colnames(sc_exp) <- c("genes", "seedling_closed")
+
+# remove non expressed genes
+olg_exp <- olg_exp %>% drop_na()
+osg_exp <- osg_exp %>% drop_na()
+nrow(olg_exp)
+nrow(lc_exp)
+nrow(osg_exp)
+nrow(sc_exp)
+
+
+# randomly sample each tissue to the same number of genes as the smallest tissue-state group
+all_tissues <- list(olg_exp, osg_exp, lc_exp, sc_exp)
+
+nrows <- c(nrow(olg_exp), nrow(osg_exp), nrow(lc_exp), nrow(sc_exp))
+shortest_df_index <- which.min(nrows)
+shortest_df <- switch(shortest_df_index, olg_exp, osg_exp, lc_exp, sc_exp)
+
+olg_exp_r <- olg_exp %>% slice_sample(n=nrow(shortest_df))
+osg_exp_r <- osg_exp %>% slice_sample(n=nrow(shortest_df))
+
+lc_exp_r <- lc_exp %>% slice_sample(n=nrow(shortest_df))
+sc_exp_r <- sc_exp %>% slice_sample(n=nrow(shortest_df))
+
+open_exp <- merge(olg_exp_r, osg_exp_r, by="genes", all.x=TRUE, all.y=TRUE)
+closed_exp <- merge(lc_exp_r, sc_exp_r, by="genes", all.x=TRUE, all.y=TRUE)
+full_exp <- merge(open_exp, closed_exp, by="genes", all.x=TRUE, all.y=TRUE)
+    
+
+full_exp_long <- full_exp %>% gather(key = "tissue", value = "tpm", -1) %>% na.omit(tpm) %>% mutate(tpm=if_else(tpm==0, log10(tpm+0.001),log10(tpm)))
+
+full_exp_long2 <- full_exp_long %>% mutate(state=gsub("^.*_","",tissue)) %>% mutate(tissue=gsub("\\_.*","", tissue)) %>% mutate(tissue_state=paste(tissue, state, sep = "_"))
+
+
+full_exp_long2 %>% filter(tissue=="Leaf", state=="open") %>% summary
+full_exp_long2 %>% filter(tissue=="Leaf", state=="closed") %>% summary
+full_exp_long2 %>% filter(tissue=="Seedling", state=="open") %>% summary
+full_exp_long2 %>% filter(tissue=="Seedling", state=="closed") %>% summary
+
+full_exp_long2 <- full_exp_long2 %>% mutate(tissue=if_else(tissue=="leaf", "Leaf", "Seedling"), state=if_else(str_detect(tissue_state, "open"), "Open", "Closed"))  %>% mutate(tissue_state=paste(tissue, state, sep = "_"))
+
+write_csv(full_exp_long2, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure2A.csv")
+
+full_exp_long2 %>% ggplot(aes(x=tissue_state, y=tpm)) + geom_boxplot()  + 
+  theme(axis.text.x = element_text(face="bold", size=35, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(size=35, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35)) + 
+  #scale_x_discrete(name ="genomic_regions", limits=c("Promoters","Exons","Introns","immediateDownstream", "Intergenic.Region")) + 
+  #guides(fill=guide_legend(title="genomic Regions")) + 
+  #theme(legend.title=element_text(size=35), legend.text=element_text(size=24)) + 
+  facet_wrap(~tissue, scales = "free", ncol = 2) +
+  theme(strip.text = element_text(size = 45, face = "bold"),
+        strip.background = element_rect(fill = rgb(0.8667,0.8667,0.8667, alpha = 0.3), color="#BBBBBB", size=1.5)) +
+  theme(legend.position = "none") +
+  xlab("Chromatin state") +
+  ylab("log10(tpm)") + 
+  ylim(-10, 10)
+
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/Ahypv3_chromatin_state_exp_log10_ahypv3_2025.png", width=15, height=10)
+ggsave(filename = "~/Documents/projects/ATAC_seq/nature_comm_publication/figures/chromatin_state_exp_log10_ahypv3_2025.png", width=25, height=20, dpi=600)
+
+
+
+tpm.aov <- aov(tpm ~ tissue*state, full_exp_long2)
+print(summary(tpm.aov))
+
+print("#########  Huckey")
+
+hsd_res=HSD.test(tpm.aov,c("tissue","state"),alpha=0.05)
+print(hsd_res)
+
+
+print("#########  Kruskal-Wilcox")
+
+ks.test(full_exp_long2$tpm,"pnorm", mean=mean(full_exp_long2$tpm), sd=sd(full_exp_long2$tpm))
+
+kruska <- pairwise.wilcox.test(full_exp_long2$tpm,full_exp_long2$tissue_state, p.adjust.method = "bonferroni")
+print(kruska)
+
+
+```

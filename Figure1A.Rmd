@@ -1,0 +1,230 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(circlize)
+library(data.table)
+library(GenomicRanges)
+```
+
+## Setup
+
+```{r}
+read.gtf <- function(file){
+  # based on: https://www.biostars.org/p/272889/
+  # read in the gtf file:
+  gff <- fread(file)
+  setnames(gff, names(gff), c("chr","source","type","start","end","score","strand","phase","attributes"))
+  # subset attribute column into the gene and transcript id columns
+  # function for extracting the two attributes
+  extract_attributes <- function(gtf_column, att_of_interest){
+    att <- strsplit(gtf_column, "; ")
+    att <- gsub("\"","",unlist(att))
+    att <- gsub(";","",unlist(att))
+    if(!is.null(unlist(strsplit(att[grep(att_of_interest, att)], " ")))){
+      return( unlist(strsplit(att[grep(att_of_interest, att)], " "))[2])
+    }else{
+      return(NA)
+    }
+  }
+  # using the function to subset gene and transcript id:
+  gff$gene_id <- unlist(lapply(gff$attributes, extract_attributes, "gene"))
+  gff$transcript_id <- unlist(lapply(gff$attributes, extract_attributes, "transcript"))
+  return(gff)
+}
+
+# Create function for converting gtf dataframe to genomic ranges onbject
+Granges_from_gtf <- function(gtf){
+  # requires the GRanges and tidyverse packages
+  gene_structures <- gtf %>%
+  group_by(transcript_id) %>% # group by transcript id
+  summarise(gene_start = min(start),
+            gene_end = max(end),
+            seqnames = unique(chr), # all sequences should be on the same chromosome
+            gene_strand = unique(strand))
+  # use the gene_structures object to create the genomic ranges object
+  gene_ranges <- GRanges(seqnames = gene_structures$seqnames, 
+                         ranges = IRanges(start=gene_structures$gene_start, 
+                                          end=gene_structures$gene_end,
+                                          names = gene_structures$transcript_id), 
+                         strand = gene_structures$gene_strand)
+  return(gene_ranges)
+}
+```
+
+
+
+## Circos plot
+
+Load in data and perform necessary transformations.
+
+```{r}
+# for the circlize package, bed-like dataframes are required
+# load in the indexed genome and create a bed-like format from the genome
+setwd("~/Documents/projects/ATAC_seq/data/")
+genome.bed <- read.table("ref_genomes/Ahypochondriacus_v3.softmasked.fasta.fai")
+genome.bed <- genome.bed %>%
+  head(16) %>%
+  summarize(chr = V1,
+            start = 1,
+            end = V2)
+# define chromosome order:
+order <- as.numeric(gsub(".*_", "", genome.bed$chr))
+genome.bed$chr <- as.factor(genome.bed$chr)
+# reorder based on on order vector
+genome.bed$chr <- reorder(genome.bed$chr, order)
+
+# load in genome annotation
+setwd("~/Documents/projects/ATAC_seq/data/")
+gene_annotation <- read.gtf("ref_genomes/Ahypochondriacus_v3.gtf")
+gene_bed <- gene_annotation %>%
+  filter(type=="CDS") %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+# load in repetitive element annotation
+setwd("~/Documents/projects/ATAC_seq/data/")
+rep_annotation <- read.table("TEanno/Ahypochondriacus_v3.fasta.mod.EDTA.TEanno.gff3")
+rep_bed <- rep_annotation %>%
+  summarize(chr = V1,
+            start = V4,
+            end = V5)
+#rep_bed <- rep_bed %>% filter(!str_detect(chr, "Contig"))
+
+
+# load in methylation data
+meth_annotation <- read.table("/Users/corbinian/Documents/projects/ATAC_seq/data/methylation/Plainsman_nickname_unzip.bismark_chr8.cov")
+colnames(meth_annotation) <- c("chr", "start", "end", "fraction", "yes", "no")
+meth_annotation <- meth_annotation %>% filter(str_detect(chr, "chr")) %>% mutate(total=yes+no) %>% filter(fraction>=25, total>=5)
+meth_bed <- meth_annotation %>%
+  summarize(chr = chr,
+            start = start,
+            end = end)
+
+```
+
+```{r}
+# load peak data 
+
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+
+
+setwd("~/Documents/projects/ATAC_seq/data/")
+#dfpeaks <- read.csv("Peaks_with_sample_info_tcorrected.csv")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minov.csv", sep = ",")
+dfpeaks <- dfpeaks %>% mutate(chr=gsub("_", "", chr))
+dfref <- dfpeaks# %>% filter(str_detect(Accession, "PI 558499")) 
+#dfref <- dfref %>% mutate(across("chr", str_replace, "Scaffold_", "chr"))
+dfref_l <- dfpeaks %>% filter(str_detect(tissue, "leaf")) 
+dfref_s <- dfpeaks %>% filter(str_detect(tissue, "seedling")) 
+
+library(GenomicRanges)
+GRref_l <- makeGRangesFromDataFrame(dfref_l)
+GRref_s <- makeGRangesFromDataFrame(dfref_s)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref_l <- reduce(GRref_l)
+GRref_s <- reduce(GRref_s)
+
+library(Repitools)
+dfref_reduced_l <- annoGR2DF(GRref_l)
+dfref_reduced_s <- annoGR2DF(GRref_s)
+
+dfref_reduced_l <- as.data.frame(GRref_l)
+dfref_reduced_s <- as.data.frame(GRref_s)
+
+dfref_reduced_l <- dfref_reduced_l %>% transmute(chr=seqnames, start=start, end=end, width=width)
+dfref_reduced_s <- dfref_reduced_s %>% transmute(chr=seqnames, start=start, end=end, width=width)
+
+
+peak_bed_l <- dfref_reduced_l %>% summarize(chr=chr, start=start, end=end) %>% mutate(chr=str_replace(chr, "chr", "chr_"))
+#peak_bed_f_l <- peak_bed_l %>% anti_join(filter(peak_bed_l, chr=="Scaffold_10", start>=5000000, end<=7000000))
+
+peak_bed_s <- dfref_reduced_s %>% summarize(chr=chr, start=start, end=end) %>% mutate(chr=str_replace(chr, "chr", "chr_"))
+#peak_bed_f_s <- peak_bed_s %>% anti_join(filter(peak_bed_s, chr=="Scaffold_10", start>=5000000, end<=7000000))
+
+
+genome.bed_10 <- genome.bed %>% filter(str_detect(chr, "chr_8")) %>% mutate(source="genomic")
+gene_bed_10 <- gene_bed%>% filter(str_detect(chr, "chr_8")) %>% mutate(source="genes")
+rep_bed_10 <- rep_bed%>% filter(str_detect(chr, "chr_8")) %>% mutate(source="TEs")
+peak_bed_l_10 <- peak_bed_l %>% filter(str_detect(chr, "chr_8")) %>% mutate(source="leaf")
+peak_bed_s_10 <- peak_bed_s %>% filter(str_detect(chr, "chr_8")) %>% mutate(source="seedling")
+
+all_chr8 <- rbind(genome.bed_10, gene_bed_10, rep_bed_10, peak_bed_l_10, peak_bed_s_10)
+
+write_csv(all_chr8, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure1A_chr8.csv")
+```
+
+
+```{r}
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+
+
+
+all_chr8 <- read.csv("~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure1A_chr8.csv")
+
+genome.bed_10 <- all_chr8 %>% filter(source=="genomic")
+gene_bed_10 <- all_chr8 %>% filter(source=="genes")
+rep_bed_10 <- all_chr8 %>% filter(source=="TEs")
+peak_bed_l_10 <- all_chr8 %>% filter(source=="leaf")
+peak_bed_s_10 <- all_chr8 %>% filter(source=="seedling")
+
+peak_density_l <- genomicDensity(peak_bed_l_10, window.size = 10000)
+peak_plot_l <- peak_density_l %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#CC79A7")) + scale_fill_manual(values = "#CC79A7") + theme(legend.position = "none") #+ ylim(0, 0.3)  + xlim(0,23000000)
+
+peak_density_s <- genomicDensity(peak_bed_s_10, window.size = 10000)
+peak_plot_s <- peak_density_s %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#D55E00")) + scale_fill_manual(values = "#D55E00") + theme(legend.position = "none") #+ ylim(0, 0.35) + xlim(0,23000000) 
+
+meth_density <- genomicDensity(meth_bed, window.size = 10000)
+gene_plot <- meth_density %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#FFCC66")) + scale_fill_manual(values = "#FFCC66") + theme(legend.position = "none") #+ ylim(0, 0.5)
+
+
+gene_density <- genomicDensity(gene_bed_10, window.size = 10000)
+gene_plot <- gene_density %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#0072B2")) + scale_fill_manual(values = "#0072B2") + theme(legend.position = "none") #+ ylim(0, 0.5)
+
+rep_density <- genomicDensity(rep_bed_10, window.size = 10000)
+rep_plot <- rep_density %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#009E73")) + scale_fill_manual(values = "#009E73") + theme(legend.position = "none") # + ylim(0, 0.9) + xlim(0,23000000) 
+
+plot_grid(peak_plot_l, peak_plot_s, gene_plot, rep_plot, nrow=4, ncol=1, algin="hv", axis = "l", labels = c("peaks_l", "peaks_s", "genes", "repeats"), label_y = c(1.15, 1.15, 1.15), greedy = TRUE)
+
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/genome_feature_density_bothtissues_chr8.png", width=15, height=10)
+```
+
+```{r}
+peak_density_l <- genomicDensity(peak_bed_f_l_10, window.size = 100)
+peak_density_s <- genomicDensity(peak_bed_f_s_10, window.size = 100)
+gene_density <- genomicDensity(gene_bed_10, window.size = 100)
+rep_density <- genomicDensity(rep_bed_10, window.size = 100)
+
+citation("circlize")
+
+peak_plot_l <- peak_density_l %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#CC79A7")) + scale_fill_manual(values = "#CC79A7") + theme(legend.position = "none") + xlim(14710000,14720000)
+peak_plot_s <- peak_density_s %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#D55E00")) + scale_fill_manual(values = "#D55E00") + theme(legend.position = "none") + xlim(14710000,14720000) 
+gene_plot <- gene_density %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#0072B2")) + scale_fill_manual(values = "#0072B2") + theme(legend.position = "none") + xlim(14710000,14720000) 
+rep_plot <- rep_density %>% ggplot(aes(x=start, y=value)) + geom_area(aes(fill="#009E73")) + scale_fill_manual(values = "#009E73") + theme(legend.position = "none") + xlim(14710000,14720000) 
+
+
+plot_grid(peak_plot_l, peak_plot_s, gene_plot, rep_plot, nrow=4, ncol=1, algin="hv", axis = "l", labels = c("peaks_l", "peaks_s", "genes", "repeats"), label_y = c(1.15, 1.15, 1.15), greedy = TRUE)
+
+```

@@ -1,0 +1,334 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r libraries}
+library(Repitools)
+library(tidyverse)
+#library(goseq)
+library(cowplot)
+library(reshape2)
+library(ChIPpeakAnno)
+theme_set(theme_cowplot())
+```
+
+
+```{r}
+# create file with peaks that appear in at least two samples per species
+  # some accessions have only two samples while others have up to 8. So species seems more equitable
+
+
+setwd("~/Documents/projects/ATAC_seq/data/")
+#dfpeaks <- read.csv("peak_calling/dedup/macs3_output_summary_cgs_nowgs_w_sample_info.csv", sep = ",")
+#dfpeaks <- read.csv("peak_calling/dedup/Acru_all_summary_cgs_nowgs_w_sample_info_corr.csv", sep = ",")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+dfpeaks
+
+###   Overlap between datasets
+suppressMessages({
+species_overlap <- function(dfref) {
+  library(GenomicRanges)
+GRrefa <- makeGRangesFromDataFrame(dfref)
+GRrefb <- makeGRangesFromDataFrame(dfref)
+
+
+ol <- findOverlaps(GRrefa,GRrefb)
+dfol <- as.data.frame(ol)
+dfol <- dfol %>% group_by(queryHits) %>% summarise(count=n()) %>% filter(count > 1)
+
+dfref_red <- dfref[dfol$queryHits,]  
+
+}
+})
+
+# peaks that appear more than once within species
+dfref <- dfpeaks %>% filter(str_detect(species, "hypochondriacus"))
+dfhyp <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "caudatus"))
+dfcau <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "cruentus"))
+dfcru <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "hybridus"))
+dfhyb <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "quitensis"))
+dfqui <- species_overlap(dfref)
+
+dfred <- rbind(dfcau, dfcru, dfhyp, dfhyb, dfqui)
+
+#write_csv(dfhyp, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/hyp_nowgs_w_sample_info_2minov_corr.csv")
+#write_csv(dfcau, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/cau_nowgs_w_sample_info_2minov_corr.csv")
+#write_csv(dfcru, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/cru_nowgs_w_sample_info_2minov_corr.csv")
+#write_csv(dfhyb, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/hyb_nowgs_w_sample_info_2minov_corr.csv")
+#write_csv(dfqui, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/qui_nowgs_w_sample_info_2minov_corr.csv")
+#write_csv(dfred, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/All_species_summary_cgs_nowgs_w_sample_info_2minov_corr.csv")
+dfcau$species[[1]]
+
+
+## find all unique peaks for each species
+suppressMessages({
+unique_ACRs <- function(dfunique) {
+
+species_tmp <- dfunique$species[[1]]
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+grref <- makeGRangesFromDataFrame(dfunique)
+grref <- reduce(grref)
+
+library(tidyverse)  
+
+library(Repitools)
+dfref2 <- annoGR2DF(grref)
+dfref2 <- dfref2 %>% mutate(species=species_tmp)
+return(dfref2)
+}
+})
+
+
+dfcau2 <- unique_ACRs(dfcau)
+dfcru2 <- unique_ACRs(dfcru)
+dfhyp2 <- unique_ACRs(dfhyp)
+dfhyb2 <- unique_ACRs(dfhyb)
+dfqui2 <- unique_ACRs(dfqui)
+
+dfred_actual <- rbind(dfcau2, dfcru2, dfhyp2, dfhyb2, dfqui2)
+
+write.csv(dfqui2, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/qui_ACRs_2minoverlap_reduced.csv", sep = ",")
+
+
+### join overlapping peaks to get list of all unique peaks
+
+suppressMessages({
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+grred <- makeGRangesFromDataFrame(dfred)
+grred <- reduce(grred)
+
+library(tidyverse)  
+
+# turn annotation into dataframe
+library(Repitools)
+})
+
+dfred2 <- annoGR2DF(grred)
+
+#dfred2 %>% ggplot(aes(x=width)) + geom_density()
+
+dfred2 <- dfred2 %>% transmute(chr=chr, start=start, end=end, length=width)
+
+# give each unique peak an identifier
+dfred2 <- dfred2 %>% mutate(peak_name=1:length(dfred2$chr)) %>% mutate(chr=as.character(chr))
+
+write_csv(dfred2, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_allpeaks_2perspecies_reduced.csv")
+
+# assign peaks in samples to unique peaks
+dfred_pn <- left_join(dfred, dfred2, join_by(chr, within(x$start, x$end, y$start, y$end)))
+dfred_pn2 <- left_join(dfred_actual, dfred2, join_by(chr, within(x$start, x$end, y$start, y$end)))
+
+```
+
+
+
+```{r  genome statistics}
+
+
+dfred_test <- dfred_pn2 %>% transmute(chr=as.character(chr), start=start.y, end=end.y, length=length, peak_name=peak_name, species=species)
+
+dfsplit <- dfred_test %>% distinct() %>% group_split(species)
+
+
+dfall <- dfred2
+
+test <- as.data.frame(dfsplit[[1]])
+dfall_species <- dfall %>% left_join(dfsplit[[1]], by=c("chr", "start", "end", "length", "peak_name")) %>% left_join(dfsplit[[2]], by=c("chr", "start", "end", "length", "peak_name")) %>% left_join(dfsplit[[3]], by=c("chr", "start", "end", "length", "peak_name")) %>% left_join(dfsplit[[4]], by=c("chr", "start", "end", "length", "peak_name")) %>% left_join(dfsplit[[5]], by=c("chr", "start", "end", "length", "peak_name")) 
+colnames(dfall_species) <- c("chr", "start", "end", "length", "peak_name", "caudatus", "cruentus", "hybridus", "hypochondriacus", "quitensis")
+dfall_species <- dfall_species %>% mutate_at(vars(caudatus:quitensis), ~ ifelse(is.na(.), 0, 1))
+
+#write_csv(dfall_species, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/universal_ACRs_species_identity_matrix.csv")
+
+
+#### using universal peaks increases fraction of genome (>8% instead of 5%)
+  # instead just overlap between individual species 
+
+#### this doe not seem reduced at all
+dfspecies_ACR <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/All_species_summary_cgs_nowgs_w_sample_info_2minov_corr.csv")
+
+dfcau_ACR <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/cau_ACRs_2minoverlap_reduced.csv")
+dfcru_ACR <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/cru_ACRs_2minoverlap_reduced.csv")
+dfhyp_ACR <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/hyp_ACRs_2minoverlap_reduced.csv")
+dfhyb_ACR <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/hyb_ACRs_2minoverlap_reduced.csv")
+dfqui_ACR <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/qui_ACRs_2minoverlap_reduced.csv")
+
+dfcau_ACR %>% summarise(sum(width))/439000000   # 24974528 bp; 6.54% of genome
+dfcru_ACR %>% summarise(sum(width))   # 23468152 bp; 5.81% of genome
+dfhyp_ACR %>% summarise(sum(width))   # 27421512 bp; 6.79% of genome
+dfhyb_ACR %>% summarise(sum(width))   # 23100856 bp; 5.72% of genome
+dfqui_ACR %>% summarise(sum(width))   # 22348486 bp; 5.53% of genome
+
+
+
+### Use chippeakanno instead for overlap between species
+
+library(ChIPpeakAnno)
+library(GenomicFeatures)
+
+
+grcau <- makeGRangesFromDataFrame(dfcau_ACR)
+grcru <- makeGRangesFromDataFrame(dfcru_ACR)
+grhyp <- makeGRangesFromDataFrame(dfhyp_ACR)
+grhyb <- makeGRangesFromDataFrame(dfhyb_ACR)
+grqui <- makeGRangesFromDataFrame(dfqui_ACR)
+
+# cau-hyb
+  # annotatePeakInBatch: compares A to B and reports all overlaps between the two sets. ACRs of A with no overlap to B will have NAs in the corresponding output columns.
+ol.test <- annotatePeakInBatch(grcau, AnnotationData = grhyb, output="overlapping", maxgap=0)
+dfcauhyb_ol <- as.data.frame(ol.test)
+  # find overlaps and count length of caudatus ACRs that have no overlap with/ do not appear in hybridus
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+  # how much of open chrom in caudatus do these ACRs make up
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/28735032#24974528   # 23.9%; 5969248 bp of cau is open only in cau
+  # how much of the genome do these ACRs make up
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.48%; 5969248 bp of the genome open is in cau compared to hybridus
+#0.01910272
+
+  # do the inverse comparison to get ACRs unique to hybridus
+ol.test <- annotatePeakInBatch(grhyb, AnnotationData = grcau, output="overlapping", maxgap=0)
+dfcauhyb_ol <- as.data.frame(ol.test)
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/22566527#23100856   # 17.03%; 3935368 bp of hyb is closed in cau
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 0.97%; 3935368 bp of the genome closed is in cau compared to hybridus
+#0.006944531	
+
+# cru-hyb
+ol.test <- annotatePeakInBatch(grcru, AnnotationData = grhyb, output="overlapping", maxgap=0)
+dfcauhyb_ol <- as.data.frame(ol.test)
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/22650277#23468152   # 22.27%; 5227302 bp of cau is open only in cau
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.29%; 5227302 bp of the genome open is in cau compared to hybridus
+#0.01164325	
+ol.test <- annotatePeakInBatch(grhyb, AnnotationData = grcru, output="overlapping", maxgap=0)
+dfcauhyb_ol <- as.data.frame(ol.test)
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/22566527#23100856   # 20.44%; 4722441 bp of hyb is closed in cau
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.17%; 4722441 bp of the genome closed is in cau compared to hybridus
+#0.01083791	
+
+# hyp-hyb
+ol.test <- annotatePeakInBatch(grhyp, AnnotationData = grhyb, output="overlapping", maxgap=0)
+dfcauhyb_ol <- as.data.frame(ol.test)
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/27452735#27421512   # 25.52%; 6998327 bp of cau is open only in cau
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.73%; 6998327 bp of the genome open is in cau compared to hybridus
+#0.01658927	
+ol.test <- annotatePeakInBatch(grhyb, AnnotationData = grhyp, output="overlapping", maxgap=0)
+dfcauhyb_ol <- as.data.frame(ol.test)
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/22566527#23100856   # 13.98%; 3228601 bp of hyb is closed in cau
+dfcauhyb_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 0.8%; 3228601 bp of the genome closed is in cau compared to hybridus
+#0.006886403	
+
+
+
+#### qui - cau/hyb
+
+# qui-hyb
+ol.test <- annotatePeakInBatch(grhyb, AnnotationData = grqui, output="overlapping", maxgap=0)
+dfhybqui_ol <- as.data.frame(ol.test)
+qui_w <- dfqui_ACR %>% summarise(sum(width))
+dfhybqui_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfhybqui_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/qui_w   # 18.88%; 6998327 bp of hyb is open only in hyb
+dfhybqui_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 0.93%; 6998327 bp of the genome open is in hyb compared to quiridus
+
+ol.test <- annotatePeakInBatch(grqui, AnnotationData = grhyb, output="overlapping", maxgap=0)
+dfhybqui_ol <- as.data.frame(ol.test)
+hyb_w <- dfhyb_ACR %>% summarise(sum(width))
+dfhybqui_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfhybqui_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/hyb_w   # 19.91%; 3228601 bp of qui is closed in hyb
+dfhybqui_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000 # 0.99%; 6998327 bp of the genome open is in hyb compared to quiridus
+
+# qui-cau
+ol.test <- annotatePeakInBatch(grqui, AnnotationData = grcau, output="overlapping", maxgap=0)
+dfquicau_ol <- as.data.frame(ol.test)
+qui_w <- dfqui_ACR %>% summarise(sum(width))
+dfquicau_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfquicau_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/qui_w  # 21.4%; 6998327 bp of qui is open only in qui
+dfquicau_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 0.36%; 6998327 bp of the genome open is in qui compared to cauridus
+
+ol.test <- annotatePeakInBatch(grcau, AnnotationData = grqui, output="overlapping", maxgap=0)
+dfquicau_ol <- as.data.frame(ol.test)
+cau_w <- dfcau_ACR %>% summarise(sum(width))
+dfquicau_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfquicau_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/cau_w  # 18.92%; 3228601 bp of hyb is closed in qui
+dfquicau_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000 # 1.42%; 6998327 bp of the genome open is in qui compared to cauridus
+
+
+
+#### dom - dom
+
+# cau-cru
+ol.test <- annotatePeakInBatch(grcau, AnnotationData = grcru, output="overlapping", maxgap=0)
+dfcaucru_ol <- as.data.frame(ol.test)
+cau_w <- dfcau_ACR %>% summarise(sum(width))
+dfcaucru_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcaucru_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/cau_w  # 27.93%; bp of cau is open only in cau
+dfcaucru_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.83%;  bp of the genome open is in cau compared to hybridus
+
+ol.test <- annotatePeakInBatch(grcru, AnnotationData = grcau, output="overlapping", maxgap=0)
+dfcaucru_ol <- as.data.frame(ol.test)
+cru_w <- dfcru_ACR %>% summarise(sum(width))
+dfcaucru_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcaucru_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/cru_w  # 14.49%; bp of cau is open only in cau
+dfcaucru_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 0.75%;  bp of the genome open is in cau compared to hybridus
+
+
+# cau-hyp
+ol.test <- annotatePeakInBatch(grcau, AnnotationData = grhyp, output="overlapping", maxgap=0)
+dfcauhyp_ol <- as.data.frame(ol.test)
+cau_w <- dfcau_ACR %>% summarise(sum(width))
+dfcauhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/cau_w  # 18.91%; bp of cau is open only in cau
+dfcauhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.24%;  bp of the genome open is in cau compared to hybridus
+
+ol.test <- annotatePeakInBatch(grhyp, AnnotationData = grcau, output="overlapping", maxgap=0)
+dfcauhyp_ol <- as.data.frame(ol.test)
+hyp_w <- dfhyp_ACR %>% summarise(sum(width))
+dfcauhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcauhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/hyp_w  # 16.83%; bp of cau is open only in cau
+dfcauhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.06%;  bp of the genome open is in cau compared to hybridus
+
+
+# cru-hyp
+ol.test <- annotatePeakInBatch(grcru, AnnotationData = grhyp, output="overlapping", maxgap=0)
+dfcruhyp_ol <- as.data.frame(ol.test)
+cru_w <- dfcru_ACR %>% summarise(sum(width))
+dfcruhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcruhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/cru_w  # 14.25%; bp of cru is open only in cru
+dfcruhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 0.74%;  bp of the genome open is in cru compared to hybridus
+
+ol.test <- annotatePeakInBatch(grhyp, AnnotationData = grcru, output="overlapping", maxgap=0)
+dfcruhyp_ol <- as.data.frame(ol.test)
+hyp_w <- dfhyp_ACR %>% summarise(sum(width))
+dfcruhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))
+dfcruhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/hyp_w  # 25.74%; bp of cru is open only in cru
+dfcruhyp_ol %>% filter(is.na(feature)) %>% summarise(sum(width))/439000000   # 1.61%;  bp of the genome open is in cru compared to hybridus
+
+
+
+```

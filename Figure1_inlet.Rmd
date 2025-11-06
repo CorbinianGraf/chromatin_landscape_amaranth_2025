@@ -1,0 +1,80 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(cowplot)
+library(reshape2)
+library(tidyverse)
+theme_set(theme_cowplot())
+```
+
+
+```{r}
+
+# load and analyze overlaps between ACRs and TEs 
+dfol <- read.csv("~/Documents/projects/ATAC_seq/data/methylation/ACR_TE_overlap.bed", sep = "\t", header = FALSE)
+colnames(dfol) <- c("chr", "start", "end", "family", "class", "chr_ACR", "start_ACR", "end_ACR", "overlap")
+
+dfol %>% distinct(chr_ACR, start_ACR, end_ACR) %>% mutate(length=end_ACR-start_ACR) %>% summarise(sum(length))   # 18067746bp ; 20792 / 29188 ACRs -> 71.23% of distinct ACRs
+dfol %>% summarise(sum(overlap)) # 6763022bp ; covers 37.43% of open chromatin (ACRs that overlap)
+
+
+
+
+dfol2 <- read.csv("~/Documents/projects/ATAC_seq/data/methylation/meth_TE_overlap.bed", sep = "\t", header = FALSE)
+colnames(dfol2) <- c("chr", "start", "end", "family", "class", "chr_meth", "start_meth", "end_meth", "overlap")
+
+dfol2_meth <- dfol2 %>% mutate(overlap=1) %>% group_by(chr, start, end, family, class) %>% summarise(total_meth=sum(overlap))
+dfol2_meth <- dfol2_meth %>% mutate(length=end-start, fraction=total_meth/length) %>% ungroup() # 500753/666595 TEs are methylated ; 75.12%
+dfol2_meth %>% summarise(sum(total_meth)) # 222292948bp TEs ; 6588038bp ; 2.96% of TE mass is methylated
+
+
+
+
+dfol3 <- read.csv("~/Documents/projects/ATAC_seq/data/methylation/meth_ACRandTEoverlap_overlap.bed", sep = "\t", header = FALSE)
+colnames(dfol3) <- c("chr", "start", "end", "chr_meth", "start_meth", "end_meth", "chr_ol", "start_ol", "end_ol", "overlap")
+
+dfol3_meth <- dfol3 %>% mutate(overlap=1) %>% group_by(chr, start, end) %>% summarise(total_meth=sum(overlap)) %>% mutate(length=end-start, fraction=total_meth/length) %>% ungroup()
+dfol3_meth %>% summarise(sum(total_meth))
+dfol3_meth %>% summarise(sum(length)) # 29649 TEs ; 5420031bp overlap ; 1782100bp methylised ; 32.88% coverage
+
+
+
+data <- data.frame(
+  Group = c("ACRs", "ACRs", "Total", "Total"),
+  State = c("methylated", "unmethylated", "methylated", "unmethylated"),
+  Fraction = c(32.88, 67.12, 2.96, 97.04)
+)
+
+# Create the plot
+data$State <- factor(data$State, levels = c("Methylated", "Unmethylated"))
+
+ggplot(data, aes(x = Group, y = Fraction, fill = State)) +
+  geom_bar(stat = "identity", width = 0.6, position = position_stack(reverse = TRUE)) +
+  coord_flip() +
+  scale_fill_manual(values = c("methylated" = "#F0E442", "unmethylated" = "#009E73")) +
+  labs(
+    x = "",
+    y = "Fraction of TE bps (%)"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.justification = "center",
+    legend.title = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y.left = element_blank(),
+    axis.ticks.y.left = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    legend.text = element_text(size = 20, face = "bold"))
+    axis.x.te
+  )
+  
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/TE_genome_ACR_fraction.png", width=25, height=10) 
+178210/5420031
+```
+
+
+
