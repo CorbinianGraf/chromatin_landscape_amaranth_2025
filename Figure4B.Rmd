@@ -1,0 +1,375 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+```{r which  sweeps overlap with species specific OCRs}
+
+# list of sweeps with OCR
+
+# hyb - cau
+dfcomp_cau <- dffst_cau2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cau_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cau_freq==1.00, hyb_freq==0.00)
+nrow(dfcomp_cau)
+
+setwd("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/")
+dfol <- read.table("cau_sweeps_OCR_overlap2.bed",header = FALSE, sep="\t")
+colnames(dfol) <- c("chr_cau_sweep", "start_cau_sweep", "end_cau_sweep", "chr", "start", "end", "cau_overlap")
+dfall_species <- dfred2 %>% left_join(dfol, by=c("chr", "start", "end"))
+dfcau_sweeps_OCR <- dfall_species %>% filter(cau_overlap>0) %>% left_join(dfcomp_cau, by="peak_name") %>% drop_na() %>% transmute(chr=chr_cau_sweep, start=start_cau_sweep, end=end_cau_sweep)
+
+
+
+# cau - hyb
+dfcomp_hyb <- dffst_cau2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cau_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cau_freq==0.00, hyb_freq==1.00)
+nrow(dfcomp_hyb)
+
+dfol <- read.table("cau_sweeps_OCR_overlap2.bed",header = FALSE, sep="\t")
+colnames(dfol) <- c("chr_cau_sweep", "start_cau_sweep", "end_cau_sweep", "chr", "start", "end", "cau_overlap")
+dfall_species <- dfred2 %>% left_join(dfol, by=c("chr", "start", "end"))
+dfhybcau_sweeps_OCR <- dfall_species %>% filter(cau_overlap>0) %>% left_join(dfcomp_hyb, by="peak_name") %>% drop_na() %>% transmute(chr=chr_cau_sweep, start=start_cau_sweep, end=end_cau_sweep)
+
+
+
+
+# hyb - cru
+dfcomp_cru <- dffst_cru2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cru_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cru_freq==1.00, hyb_freq==0.00)
+nrow(dfcomp_cru)
+
+dfol <- read.table("cru_sweeps_OCR_overlap2.bed",header = FALSE, sep="\t")
+colnames(dfol) <- c("chr_cru_sweep", "start_cru_sweep", "end_cru_sweep", "chr", "start", "end", "cru_overlap")
+dfall_species <- dfred2 %>% left_join(dfol, by=c("chr", "start", "end"))
+dfcru_sweeps_OCR <- dfall_species %>% filter(cru_overlap>0) %>% left_join(dfcomp_cru, by="peak_name") %>% drop_na() %>% transmute(chr=chr_cru_sweep, start=start_cru_sweep, end=end_cru_sweep)
+
+# cru - hyb
+dfcomp_hyb <- dffst_cru2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cru_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cru_freq==0.00, hyb_freq==1.00)
+nrow(dfcomp_hyb)
+
+dfol <- read.table("cru_sweeps_OCR_overlap2.bed",header = FALSE, sep="\t")
+colnames(dfol) <- c("chr_cru_sweep", "start_cru_sweep", "end_cru_sweep", "chr", "start", "end", "cru_overlap")
+dfall_species <- dfred2 %>% left_join(dfol, by=c("chr", "start", "end"))
+dfhybcru_sweeps_OCR <- dfall_species %>% filter(cru_overlap>0) %>% left_join(dfcomp_hyb, by="peak_name") %>% drop_na() %>% transmute(chr=chr_cru_sweep, start=start_cru_sweep, end=end_cru_sweep)
+
+
+
+
+
+# hyb - hyp
+dfcomp_hyp <- dffst_hyp2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, hyp_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(hyp_freq==1.00, hyb_freq==0.00)
+nrow(dfcomp_hyp)
+
+dfol <- read.table("hyp_sweeps_OCR_overlap2.bed",header = FALSE, sep="\t")
+colnames(dfol) <- c("chr_hyp_sweep", "start_hyp_sweep", "end_hyp_sweep", "chr", "start", "end", "hyp_overlap")
+dfall_species <- dfred2 %>% left_join(dfol, by=c("chr", "start", "end"))
+dfhyp_sweeps_OCR <- dfall_species %>% filter(hyp_overlap>0) %>% left_join(dfcomp_hyp, by="peak_name") %>% drop_na() %>% transmute(chr=chr_hyp_sweep, start=start_hyp_sweep, end=end_hyp_sweep)
+
+# hyp - hyb
+dfcomp_hyb <- dffst_hyp2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, hyp_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(hyp_freq==0.00, hyb_freq==1.00)
+nrow(dfcomp_hyb)
+
+dfol <- read.table("hyp_sweeps_OCR_overlap2.bed",header = FALSE, sep="\t")
+colnames(dfol) <- c("chr_hyp_sweep", "start_hyp_sweep", "end_hyp_sweep", "chr", "start", "end", "hyp_overlap")
+dfall_species <- dfred2 %>% left_join(dfol, by=c("chr", "start", "end"))
+dfhybhyp_sweeps_OCR <- dfall_species %>% filter(hyp_overlap>0) %>% left_join(dfcomp_hyb, by="peak_name") %>% drop_na() %>% transmute(chr=chr_hyp_sweep, start=start_hyp_sweep, end=end_hyp_sweep)
+
+
+
+```
+
+
+
+```{r plot caudatus sweeps}
+
+cau_chrom <- dfhybcau_sweeps_OCR  %>% distinct(chr) %>% mutate(chr2=chr)
+hybcau_chrom <- dfcau_sweeps_OCR  %>% distinct(chr) %>% mutate(chr2=chr)
+cru_chrom <- dfhybcru_sweeps_OCR  %>% distinct(chr) %>% mutate(chr2=chr)
+hybcru_chrom <- dfcru_sweeps_OCR  %>% distinct(chr) %>% mutate(chr2=chr)
+hyp_chrom <- dfhybhyp_sweeps_OCR  %>% distinct(chr) %>% mutate(chr2=chr)
+hybhyp_chrom <- dfhyp_sweeps_OCR  %>% distinct(chr) %>% mutate(chr2=chr)
+
+all_chrom <- data.frame(chr=c("chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr11", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16"))
+all_chrom %>% left_join(cau_chrom, by="chr") %>% left_join(hybcau_chrom, by="chr") %>% left_join(cru_chrom, by="chr") %>% left_join(hybcru_chrom, by="chr") %>% left_join(hyp_chrom, by="chr") %>% left_join(hybhyp_chrom, by="chr")
+
+
+
+
+# all sweeps
+setwd("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/")
+dfcau_sweeps_all <- read.table("cau_all_sweeps.txt",header = FALSE, sep="\t")
+colnames(dfcau_sweeps_all) <- c("chr", "start", "a", "end", "b", "c", "d", "RAISD")
+dfcau_sweeps_all9 <- dfcau_sweeps_all %>% filter(chr=="chr_8") %>% mutate(chr=str_replace(chr, "chr_", "chr")) %>% dplyr::select(c("chr", "start", "end", "RAISD"))
+
+# sig sweeps
+dfcau_sweeps_sig <- read.table("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/cau_sweeps_top0_1.bed",header = FALSE, sep="\t")
+colnames(dfcau_sweeps_sig) <- c("chr", "start", "end")
+dfcau_sweeps_sig9 <- dfcau_sweeps_sig %>% filter(chr=="chr8")
+dfcau_sweeps_sig9 <- dfcau_sweeps_sig9 %>% left_join(dfcau_sweeps_all9, by=c("chr", "start", "end"))
+
+# sig sweeps OCR
+dfcau_sweeps_OCR %>% distinct(chr)
+dfcau_sweeps_OCR9 <- dfcau_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+nrow(dfcau_sweeps_OCR9)
+dfcau_sweeps_OCR9 <- dfcau_sweeps_OCR9 %>% left_join(dfcau_sweeps_all9, by=c("chr", "start", "end"))
+
+
+# sig wild sweeps OCR
+dfhybcau_sweeps_OCR  %>% distinct(chr)
+dfhyb_sweeps_OCR9 <- dfhybcau_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% left_join(dfcau_sweeps_all9, by=c("chr", "start", "end"))
+
+dfcau_sweeps_all9 <- dfcau_sweeps_all9 %>% mutate(significants="nonsig", mean=(start+end)/2)
+dfcau_sweeps_sig9 <- dfcau_sweeps_sig9 %>% mutate(significants="sig", mean=(start+end)/2)
+dfcau_sweeps_OCR9 <- dfcau_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+
+min_RAISD <- min(dfcau_sweeps_sig9$RAISD, na.rm = TRUE)
+max_RAISD <- max(dfcau_sweeps_all9$RAISD, na.rm = TRUE)
+
+# filter by freq
+dfsegment <- dfcomp_cau %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+dfcomp_hyb <- dffst_cau2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cau_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cau_freq==0.00, hyb_freq==1.00)
+dfsegment2 <- dfcomp_hyb %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+
+
+
+
+# all sweeps
+setwd("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/")
+dfcau_sweeps_all <- read.table("cau_all_sweeps.txt",header = FALSE, sep="\t")
+colnames(dfcau_sweeps_all) <- c("chr", "start", "a", "end", "b", "c", "d", "RAISD")
+dfcau_sweeps_all9 <- dfcau_sweeps_all %>% filter(chr=="chr_8") %>% mutate(chr=str_replace(chr, "chr_", "chr")) %>% dplyr::select(c("chr", "start", "end", "RAISD"))
+
+# sig sweeps
+dfcau_sweeps_sig <- read.table("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/cau_sweeps_top0_1.bed",header = FALSE, sep="\t")
+colnames(dfcau_sweeps_sig) <- c("chr", "start", "end")
+dfcau_sweeps_sig9 <- dfcau_sweeps_sig %>% filter(chr=="chr8")
+dfcau_sweeps_sig9 <- dfcau_sweeps_sig9 %>% left_join(dfcau_sweeps_all9, by=c("chr", "start", "end"))
+
+# sig sweeps OCR
+dfcau_sweeps_OCR %>% distinct(chr)
+dfcau_sweeps_OCR9 <- dfcau_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+nrow(dfcau_sweeps_OCR9)
+dfcau_sweeps_OCR9 <- dfcau_sweeps_OCR9 %>% left_join(dfcau_sweeps_all9, by=c("chr", "start", "end"))
+
+
+# sig wild sweeps OCR
+dfhybcau_sweeps_OCR  %>% distinct(chr)
+dfhyb_sweeps_OCR9 <- dfhybcau_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% left_join(dfcau_sweeps_all9, by=c("chr", "start", "end"))
+
+dfcau_sweeps_all9 <- dfcau_sweeps_all9 %>% mutate(significants="nonsig", mean=(start+end)/2)
+dfcau_sweeps_sig9 <- dfcau_sweeps_sig9 %>% mutate(significants="sig", mean=(start+end)/2)
+dfcau_sweeps_OCR9 <- dfcau_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+
+min_RAISD <- min(dfcau_sweeps_sig9$RAISD, na.rm = TRUE)
+max_RAISD <- max(dfcau_sweeps_all9$RAISD, na.rm = TRUE)
+
+# filter by freq
+dfsegment <- dfcomp_cau %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+dfcomp_hyb <- dffst_cau2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cau_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cau_freq==0.00, hyb_freq==1.00)
+dfsegment2 <- dfcomp_hyb %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+
+
+dfcau_sweeps_all <- rbind(dfcau_sweeps_all9,dfcau_sweeps_sig9,dfcau_sweeps_OCR9,dfhyb_sweeps_OCR9)
+write_csv(dfcau_sweeps_all, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure4B_caudatus.csv")
+
+ggplot() +
+  geom_point(data=dfcau_sweeps_all9, aes(x = mean/1000000, y = RAISD), color = "#DDDDDD", alpha = 0.5, size = 4.5) +
+  geom_point(data=dfcau_sweeps_sig9, aes(x = mean/1000000, y = RAISD), color = "#888888", alpha = 0.7, size = 5) +
+  #geom_point(data=dfcau_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#EE8866", alpha = 1, size = 6) +
+  #geom_point(data=dfhyb_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#BBCC33", alpha = 1, size = 7) +
+  geom_point(data=dfcau_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#FF6666", alpha = 1, size = 6) +
+  geom_point(data=dfhyb_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#6699FF", alpha = 1, size = 7) +
+  geom_hline(yintercept = min_RAISD, linetype = "dotted", color = "#9970AB", size=4) +
+  geom_segment(data=dfsegment, aes(x = start/1000000, xend = end/1000000, y = -5, yend = -20), color = "#FF6666", size =2) + #EE8866
+  geom_segment(data=dfsegment2, aes(x = start/1000000, xend = end/1000000, y = -5, yend = -20), color = "#6699FF", size =2) + #BBCC33
+  labs(x = "Sweep location within chromosome 16 (Mbp)",
+       y = "RAISD score") +
+  #theme(axis.text.x = element_text(face="bold", size=35, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(face="bold", size=50, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=50)) + 
+  theme(legend.title = element_blank(),
+        legend.key.size = unit(2, "lines"),
+        legend.text = element_text(size = 25)) +
+  ylim(-20, 200) +  #ylim(-20, max_RAISD+10)
+  xlim(15, 20)
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/cau_sweep_ocr_manhatten35_ch8_2.png", width=15, height=10)
+
+```
+
+
+```{r plot cruentus sweeps}
+
+
+
+# all sweeps
+setwd("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/")
+dfcru_sweeps_all <- read.table("cru_all_sweeps_corr.txt",header = FALSE, sep="\t")
+colnames(dfcru_sweeps_all) <- c("chr", "start", "a", "end", "b", "c", "d", "RAISD")
+dfcru_sweeps_all9 <- dfcru_sweeps_all %>% mutate(chr=str_replace(chr, "chr_", "chr")) %>% filter(chr=="chr8") %>% dplyr::select(c("chr", "start", "end", "RAISD"))
+
+# sig sweeps
+dfcru_sweeps_sig <- read.table("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/cru_sweeps_top0_1.bed",header = FALSE, sep="\t")
+colnames(dfcru_sweeps_sig) <- c("chr", "start", "end")
+dfcru_sweeps_sig9 <- dfcru_sweeps_sig %>% filter(chr=="chr8")
+dfcru_sweeps_sig9 <- dfcru_sweeps_sig9 %>% left_join(dfcru_sweeps_all9, by=c("chr", "start", "end"))
+
+# sig sweeps OCR
+dfcru_sweeps_OCR %>% distinct(chr)
+dfcru_sweeps_OCR9 <- dfcru_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+nrow(dfcru_sweeps_OCR9)
+dfcru_sweeps_OCR9 <- dfcru_sweeps_OCR9 %>% left_join(dfcru_sweeps_all9, by=c("chr", "start", "end"))
+
+
+# sig wild sweeps OCR
+dfhybcru_sweeps_OCR  %>% distinct(chr)
+dfhyb_sweeps_OCR9 <- dfhybcru_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% left_join(dfcru_sweeps_all9, by=c("chr", "start", "end"))
+
+dfcru_sweeps_all9 <- dfcru_sweeps_all9 %>% mutate(significants="nonsig", mean=(start+end)/2)
+dfcru_sweeps_sig9 <- dfcru_sweeps_sig9 %>% mutate(significants="sig", mean=(start+end)/2)
+dfcru_sweeps_OCR9 <- dfcru_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+
+min_RAISD <- min(dfcru_sweeps_sig9$RAISD, na.rm = TRUE)
+max_RAISD <- max(dfcru_sweeps_all9$RAISD, na.rm = TRUE)
+#max_RAISD <- max(dfhyb_sweeps_OCR9$RAISD, na.rm = TRUE)
+
+# filter by freq
+dfsegment <- dfcomp_cru %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+dfcomp_hyb <- dffst_cru2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cru_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cru_freq==0.00, hyb_freq==1.00)
+dfsegment2 <- dfcomp_hyb %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+
+
+
+dfcru_sweeps_all <- rbind(dfcru_sweeps_all9,dfcru_sweeps_sig9,dfcru_sweeps_OCR9,dfhyb_sweeps_OCR9)
+write_csv(dfcru_sweeps_all, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure4B_cruentus.csv")
+
+
+
+
+ggplot() +
+  geom_point(data=dfcru_sweeps_all9, aes(x = mean/1000000, y = RAISD), color = "#DDDDDD", alpha = 0.5, size = 4.5) +
+  geom_point(data=dfcru_sweeps_sig9, aes(x = mean/1000000, y = RAISD), color = "#888888", alpha = 0.7, size = 5) +
+  #geom_point(data=dfcru_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#EE8866", alpha = 1, size = 6) +
+  #geom_point(data=dfhyb_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#BBCC33", alpha = 1, size = 7) +
+  geom_point(data=dfcru_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#FF6666", alpha = 1, size = 6) +
+  geom_point(data=dfhyb_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#6699FF", alpha = 1, size = 7) +
+  geom_hline(yintercept = min_RAISD, linetype = "dotted", color = "#9970AB", size=4) +
+  geom_segment(data=dfsegment, aes(x = start/1000000, xend = end/1000000, y = -5, yend = -20), color = "#FF6666", size =2) + #EE8866
+  geom_segment(data=dfsegment2, aes(x = start/1000000, xend = end/1000000, y = -5, yend = -20), color = "#6699FF", size =2) + #BBCC33
+  labs(x = "Sweep location within chromosome 13 (Mbp)",
+       y = "RAISD score") +
+  #theme(axis.text.x = element_text(face="bold", size=35, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(face="bold", size=50, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=50)) + 
+  theme(legend.title = element_blank(),
+        legend.key.size = unit(2, "lines"),
+        legend.text = element_text(size = 25)) +
+  ylim(-20, 500) +
+  xlim(0, 5)
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/cru_sweep_ocr_manhatten35_chr8_2.png", width=15, height=10)
+
+
+```
+
+
+
+
+```{r plot hypochondriacus sweeps}
+
+
+
+# all sweeps
+setwd("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/")
+dfhyp_sweeps_all <- read.table("hyp_all_sweeps_corr.txt",header = FALSE, sep="\t")
+colnames(dfhyp_sweeps_all) <- c("chr", "start", "a", "end", "b", "c", "d", "RAISD")
+dfhyp_sweeps_all9 <- dfhyp_sweeps_all %>% mutate(chr=str_replace(chr, "chr_", "chr")) %>% filter(chr=="chr8") %>% dplyr::select(c("chr", "start", "end", "RAISD"))
+
+# sig sweeps
+dfhyp_sweeps_sig <- read.table("~/Documents/projects/ATAC_seq/data/ahyp_v3/RAISED/hyp_sweeps_top0_1.bed",header = FALSE, sep="\t")
+colnames(dfhyp_sweeps_sig) <- c("chr", "start", "end")
+dfhyp_sweeps_sig9 <- dfhyp_sweeps_sig %>% filter(chr=="chr8")
+dfhyp_sweeps_sig9 <- dfhyp_sweeps_sig9 %>% left_join(dfhyp_sweeps_all9, by=c("chr", "start", "end"))
+
+# sig sweeps OCR
+dfhyp_sweeps_OCR %>% distinct(chr)
+dfhyp_sweeps_OCR9 <- dfhyp_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+nrow(dfhyp_sweeps_OCR9)
+dfhyp_sweeps_OCR9 <- dfhyp_sweeps_OCR9 %>% left_join(dfhyp_sweeps_all9, by=c("chr", "start", "end"))
+
+
+# sig wild sweeps OCR
+dfhybhyp_sweeps_OCR  %>% distinct(chr)
+dfhyb_sweeps_OCR9 <- dfhybhyp_sweeps_OCR %>% filter(chr=="chr8") %>% mutate(chr=str_replace(chr, "chr_", "chr"))
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% left_join(dfhyp_sweeps_all9, by=c("chr", "start", "end"))
+
+dfhyp_sweeps_all9 <- dfhyp_sweeps_all9 %>% mutate(significants="nonsig", mean=(start+end)/2)
+dfhyp_sweeps_sig9 <- dfhyp_sweeps_sig9 %>% mutate(significants="sig", mean=(start+end)/2)
+dfhyp_sweeps_OCR9 <- dfhyp_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+dfhyb_sweeps_OCR9 <- dfhyb_sweeps_OCR9 %>% mutate(significants="sig&OCR", mean=(start+end)/2)
+
+min_RAISD <- min(dfhyp_sweeps_sig9$RAISD, na.rm = TRUE)
+max_RAISD <- max(dfhyp_sweeps_all9$RAISD, na.rm = TRUE)
+max_RAISD <- 260
+
+# filter by freq
+dfsegment <- dfcomp_hyp %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+dfcomp_hyb <- dffst_hyp2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, hyp_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(hyp_freq==0.00, hyb_freq==1.00)
+dfsegment2 <- dfcomp_hyb %>% filter(chr=="chr8") %>% mutate(mean=(start+end)/2)
+
+
+
+dfhyp_sweeps_all <- rbind(dfhyp_sweeps_all9,dfhyp_sweeps_sig9,dfhyp_sweeps_OCR9,dfhyb_sweeps_OCR9)
+write_csv(dfhyp_sweeps_all, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure4B_hypchondriacus.csv")
+
+
+
+
+
+ggplot() +
+  geom_point(data=dfhyp_sweeps_all9, aes(x = mean/1000000, y = RAISD), color = "#DDDDDD", alpha = 0.5, size = 4.5) +
+  geom_point(data=dfhyp_sweeps_sig9, aes(x = mean/1000000, y = RAISD), color = "#888888", alpha = 0.7, size = 5) +
+  #geom_point(data=dfhyp_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#EE8866", alpha = 1, size = 6) +
+  #geom_point(data=dfhyb_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#BBCC33", alpha = 1, size = 7) +
+  geom_point(data=dfhyp_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#FF6666", alpha = 1, size = 6) +
+  geom_point(data=dfhyb_sweeps_OCR9, aes(x = mean/1000000, y = RAISD), color = "#6699FF", alpha = 1, size = 7) +
+  geom_hline(yintercept = min_RAISD, linetype = "dotted", color = "#9970AB", size=4) +
+  geom_segment(data=dfsegment, aes(x = start/1000000, xend = end/1000000, y = -5, yend = -20), color = "#FF6666", size =2) + #EE8866
+  geom_segment(data=dfsegment2, aes(x = start/1000000, xend = end/1000000, y = -5, yend = -20), color = "#6699FF", size =2) + #BBCC33
+  labs(x = "Sweep location within chromosome 16 (Mbp)",
+       y = "RAISD score") +
+  #theme(axis.text.x = element_text(face="bold", size=35, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(face="bold", size=50, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=50)) + 
+  theme(legend.title = element_blank(),
+        legend.key.size = unit(2, "lines"),
+        legend.text = element_text(size = 25)) +
+  ylim(-20, 200) +
+  xlim(15, 20)
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/hyp_sweep_ocr_manhatten35_chr8_2.png", width=15, height=10)
+
+
+
+```
+
+
+```{r plot hypochondriacus sweeps}
+
+
+```
+

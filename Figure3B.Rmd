@@ -1,0 +1,1311 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r chunk 1: libraries}
+library(ggupset)
+library(tidyverse)
+library(reshape2)
+library(cowplot)
+theme_set(theme_cowplot())
+
+setwd("~/Documents/projects/ATAC_seq/data/")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+#dfpeaks <- read.csv("peak_calling/dedup/macs3_output_summary_cgs_nowgs_w_sample_info.csv", sep = ",")
+
+```
+
+```{r chunk 2: generate all species NAME combinations}
+
+# This function generates all unique combinations of the species names
+ # used later to assgin colnames()
+generate_combinations <- function(strings) {
+  all_combinations <- c()
+  
+  # Iterate through the strings
+  for (i in 1:length(strings)) {
+    # Generate combinations for the current string
+    current_combinations <- combn(strings, i, simplify = TRUE)
+    
+    # Append the combinations to the result
+    all_combinations <- c(all_combinations, apply(current_combinations, 2, function(x) paste(sort(x), collapse = "")))
+  }
+  
+  # Sort the result
+  all_combinations <- sort(all_combinations)
+  
+  return(all_combinations)
+}
+
+# Use the specified strings for combinations
+  # numbers allow 
+strings <- c("1cau", "2cru", "3hyp", "4hyb", "5qui")
+
+# Generate the pattern for the specified strings
+pattern_strings <- generate_combinations(strings)
+
+remove_numbers <- function(s) {
+  gsub("[0-9]", "", s)
+}
+
+pattern_strings <- lapply(pattern_strings, remove_numbers)
+# Print the result
+#print(pattern_strings)
+
+```
+
+
+
+
+
+
+```{r chunk 3: functions}
+# -------------------
+####### Function 1    join species duplicates
+# -------------------
+
+# this function filters for ACRs that appear in more than one sample
+species_overlap <- function(dfref) {
+  library(GenomicRanges)
+GRrefa <- makeGRangesFromDataFrame(dfref)
+GRrefb <- makeGRangesFromDataFrame(dfref)
+
+
+ol <- findOverlaps(GRrefa,GRrefb)
+dfol <- as.data.frame(ol)
+dfol <- dfol %>% group_by(queryHits) %>% summarise(count=n()) %>% filter(count > 1)
+
+dfref_red <- dfref[dfol$queryHits,]  
+
+}
+
+
+# -------------------
+####### Function 2    find unique ACRs in each species
+# -------------------
+
+
+# out put needed for assigning IDs to unique ACRs (chunk4: section 3: find unique peaks and assign IDs)
+
+unique_ACRs <- function(dfunique) {
+
+species_tmp <- dfunique$species[[1]]
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+suppressMessages(library(GenomicRanges))
+suppressMessages(library(GenomicFeatures))
+
+grref <- makeGRangesFromDataFrame(dfunique)
+grref <- reduce(grref)
+# specifiy package instead of detaching
+#grref <- GenomicRanges::reduce(grref)
+suppressMessages(library(tidyverse))
+
+suppressMessages(library(Repitools))
+dfref2 <- annoGR2DF(grref)
+dfref2 <- dfref2 %>% mutate(species=species_tmp)
+return(dfref2)
+}
+
+
+
+# -------------------
+####### Function 3    find overlaps
+# -------------------
+
+species_list <- list("caudatus", "cruentus", "hypochondriacus", "hybridus", "quitensis")
+species_list2 <- list("cau", "cru", "hyp", "hyb", "qui")
+
+observed_overlap <- function(species) {
+# observed_overlap <- function(species, dfred_pn_overlaps) {
+  
+  for (i in 1:length(list_of_character_vectors)) {
+    species_curr <- list_of_character_vectors[[i]]
+    combi_length <- length(list_of_character_vectors[[i]])
+    
+  #print(paste0("iterration_of_input:", i))
+
+  
+  if (combi_length == 1) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- "NA"
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+
+    
+    merged_df <- anti_join(species1, species_anti, by = "peak_name")
+
+    
+    combi_name <- paste0(species_list2[[species_no1]], species_list2[[species_no2]], species_list2[[species_no3]], species_list2[[species_no4]], species_list2[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 2) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                                       ungroup() %>% dplyr::select(peak_name)
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+
+    #print(paste0("merged_length:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list2[[species_no1]], species_list2[[species_no2]], species_list2[[species_no3]], species_list2[[species_no4]], species_list2[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 3) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    
+    combi_name <- paste0(species_list2[[species_no1]], species_list2[[species_no2]], species_list2[[species_no3]], species_list2[[species_no4]], species_list2[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 4) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                              filter(!str_detect(species, species_list[[species_no4]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    combi_name <- paste0(species_list2[[species_no1]], species_list2[[species_no2]], species_list2[[species_no3]], species_list2[[species_no4]], species_list2[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 5) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- species_curr[[5]]
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species5 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no5]])) %>% ungroup() %>% distinct(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- inner_join(merged_df, species5, by = "peak_name")
+    
+    combi_name <- paste0(species_list2[[species_no1]], species_list2[[species_no2]], species_list2[[species_no3]], species_list2[[species_no4]], species_list2[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+  }
+  
+  dfupset_list[[i]] <- dftmp
+  # Return NULL or any other indicator to indicate success
+  }
+return(dfupset_list)
+}
+
+```
+
+
+
+
+```{r chunk 5: generate all species DATA combinations}
+
+# this function generates all unique combinations of the numbers 1:5
+ # will later be used to sequence through each species combination while calculating the overlap between said species
+generate_combinations <- function(digits) {
+  all_combinations <- c()
+  
+  # Iterate through the number of digits
+  for (i in 1:digits) {
+    # Generate combinations for the current number of digits
+    current_combinations <- combn(1:5, i, simplify = TRUE)
+    
+    # Append the combinations to the result
+    all_combinations <- c(all_combinations, apply(current_combinations, 2, function(x) paste(sort(x), collapse = "")))
+  }
+  
+  # Sort the result
+  all_combinations <- sort(all_combinations)
+  
+  return(all_combinations)
+}
+
+# Generate the pattern for 5 digits
+pattern_5_digits <- generate_combinations(5)
+
+
+# get into right format
+list_of_pattern_5_digits <- lapply(pattern_5_digits, function(x) strsplit(x, split = ""))
+list_of_pattern_5_digits[[2]][[1]]
+
+list_of_character_vectors <- lapply(list_of_pattern_5_digits, unlist)
+list_of_character_vectors[[2]][1]
+
+list_of_character_vectors <- lapply(list_of_character_vectors, function(inner_list) {
+  as.integer(inner_list)
+})
+```
+
+
+```{r chunk 6: permutation function, echo=FALSE}
+perm_list <- list()
+
+rawpeak_perm <- function(iteration) {
+  
+
+# -------------------
+####### SECTION 1    permutate data
+# -------------------
+  
+dfpeaks_test <- dfpeaks %>% head(n=5) %>% dplyr::select(species)
+
+
+dfpeaks2 <- dfpeaks %>% mutate(species=sample(species))
+
+dfpeaks_test <- dfpeaks2 %>% head(n=5) %>% dplyr::select(species)
+
+
+
+# -------------------
+####### SECTION 2    filters for ACRs that appear in more than one sample
+# -------------------
+
+
+# filter for ACRs that appear more than once within each species
+dfref <- dfpeaks2 %>% filter(str_detect(species, "hypochondriacus"))
+nrow(dfref)
+dfhyp <- species_overlap(dfref)
+
+dfref <- dfpeaks2 %>% filter(str_detect(species, "caudatus"))
+nrow(dfref)
+dfcau <- species_overlap(dfref)
+
+dfref <- dfpeaks2 %>% filter(str_detect(species, "cruentus"))
+nrow(dfref)
+dfcru <- species_overlap(dfref)
+
+dfref <- dfpeaks2 %>% filter(str_detect(species, "hybridus"))
+nrow(dfref)
+dfhyb <- species_overlap(dfref)
+
+dfref <- dfpeaks2 %>% filter(str_detect(species, "quitensis"))
+nrow(dfref)
+dfqui <- species_overlap(dfref)
+
+
+# combine into df
+dfred <- rbind(dfcau, dfcru, dfhyp, dfhyb, dfqui)
+
+
+
+
+
+# -------------------
+####### SECTION 3    find unique peaks and assign IDs
+# -------------------
+
+
+# find unique ACRs within each species
+dfcau2 <- unique_ACRs(dfcau)
+dfcru2 <- unique_ACRs(dfcru)
+dfhyp2 <- unique_ACRs(dfhyp)
+dfhyb2 <- unique_ACRs(dfhyb)
+dfqui2 <- unique_ACRs(dfqui)
+nrow(dfcau2)
+nrow(dfcru2)
+nrow(dfhyp2)
+nrow(dfhyb2)
+nrow(dfqui2)
+
+# join overlapping peaks to get list of all unique peaks
+dfred_actual <- rbind(dfcau2, dfcru2, dfhyp2, dfhyb2, dfqui2)
+
+
+
+# find unique ACRs within the whole dataset
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+suppressMessages(library(GenomicRanges))
+suppressMessages(library(GenomicFeatures))
+
+grred <- makeGRangesFromDataFrame(dfred)
+grred <- reduce(grred)
+
+suppressMessages(library(tidyverse))
+
+suppressMessages(library(Repitools))
+dfred2 <- annoGR2DF(grred)
+
+
+# reduce df columns / size
+#dfred2 <- dfred2 %>% transmute(chr=chr, start=start, end=end, length=width)  # old format (v2 ref genome); ACR length was called width
+dfred2 <- dfred2 %>% transmute(chr=chr, start=start, end=end)
+
+# give each unique peak an identifier
+dfred2 <- dfred2 %>% mutate(peak_name=1:length(dfred2$chr))
+
+# assign peaks in samples to unique peaks
+dfred_pn2 <- left_join(dfred_actual, dfred2, join_by(chr, within(x$start, x$end, y$start, y$end)))
+
+
+
+
+
+# -------------------
+####### SECTION 4    find ACR overlap between species
+# -------------------
+
+
+dfred_pn3 <- dfred_pn2 %>% dplyr::select(species, peak_name)
+
+
+##### this needs to be run after creating the simulated datasets
+  # investigation into "why" is ongoing
+
+species_list <- list("caudatus", "cruentus", "hypochondriacus", "hybridus", "quitensis")
+species_list2 <- list("cau", "cru", "hyp", "hyb", "qui")
+species_list2
+
+
+dfupset_list <- list()
+
+### use function 3: find overlaps
+#observed_overlap_peaks <- lapply(1, observed_overlap, input_df = dfred_pn3, it = iteration)
+observed_overlap_peaks <- lapply(1, observed_overlap)
+
+
+dfobserved <- as.data.frame(unlist(observed_overlap_peaks)) %>% t()
+dfobserved <- as.data.frame(dfobserved)
+rownames(dfobserved) <- c()
+colnames(dfobserved) <- pattern_strings
+
+
+dfobserved
+
+
+
+# save output of permutation
+perm_list[[iteration]] <- dfobserved
+
+# close function
+}
+
+dfperm_test <- sapply(1:100, rawpeak_perm)
+
+```
+
+
+
+
+
+
+
+```{r call functions}
+# call function
+#dfperm_test <- sapply(1:100, rawpeak_perm)
+dfperm_test[1,]
+dftest <- as.data.frame(dfperm_test)
+dftest <- dftest %>% mutate_all(~ as.integer(unlist(.)))
+
+# calc intervals
+dftest[1,]
+
+conf_int <- function(i) {
+  
+  confidence_interval <- t.test(dftest[i,])$conf.int
+  
+  lower <- confidence_interval[[1]]
+  upper <- confidence_interval[[2]]
+  
+  dfint_tmp <- data.frame(species_combi=c(lower, upper))
+  #colnames(dfint_tmp) <- species_combi
+  
+  dfint_list[[i]] <- dfint_tmp
+
+}
+
+wert <- sapply(1:nrow(dftest), conf_int)
+wert
+
+names(wert) <- pattern_strings
+dfint <- do.call(cbind, wert)
+
+dfint2 <- as.data.frame(dfint)
+dfint2
+```
+
+
+
+
+
+
+
+
+```{r calculate observed values}
+setwd("~/Documents/projects/ATAC_seq/data/")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+#dfpeaks <- read.csv("peak_calling/dedup/Acru_all_summary_cgs_nowgs_w_sample_info_corr.csv", sep = ",")
+dfpeaks <- dfpeaks %>% filter(!(full_sample=="AM-00582_L_1")) %>% filter(!(full_sample=="AM-00586_L_1")) %>% filter(!(full_sample=="AM-01099_L_1")) %>% filter(!(full_sample=="AM-01106_S_1"))
+
+
+
+###   Overlap between datasets
+species_overlap <- function(dfref) {
+  library(GenomicRanges)
+GRrefa <- makeGRangesFromDataFrame(dfref)
+GRrefb <- makeGRangesFromDataFrame(dfref)
+setwd("~/Documents/projects/ATAC_seq/data/ref_genomes")
+
+
+ol <- findOverlaps(GRrefa,GRrefb)
+dfol <- as.data.frame(ol)
+dfol <- dfol %>% group_by(queryHits) %>% summarise(count=n()) %>% filter(count > 1)
+
+dfref_red <- dfref[dfol$queryHits,]  
+
+}
+
+# peaks that appear more than once within species
+dfref <- dfpeaks %>% filter(str_detect(species, "hypochondriacus"))
+dfhyp <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "caudatus"))
+dfcau <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "cruentus"))
+dfcru <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "hybridus"))
+dfhyb <- species_overlap(dfref)
+
+dfref <- dfpeaks %>% filter(str_detect(species, "quitensis"))
+dfqui <- species_overlap(dfref)
+
+dfred <- rbind(dfcau, dfcru, dfhyp, dfhyb, dfqui)
+
+
+#write_csv(dfred, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs_2minoverlap_allspecies.csv")
+dfcau$species[[1]]
+
+
+
+## find all unique peaks for each species
+unique_ACRs <- function(dfunique) {
+
+species_tmp <- dfunique$species[[1]]
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+grref <- makeGRangesFromDataFrame(dfunique)
+grref <- reduce(grref)
+
+library(tidyverse)  
+
+library(Repitools)
+dfref2 <- annoGR2DF(grref)
+dfref2 <- dfref2 %>% mutate(species=species_tmp)
+return(dfref2)
+}
+
+
+
+dfcau2 <- unique_ACRs(dfcau)
+dfcru2 <- unique_ACRs(dfcru)
+dfhyp2 <- unique_ACRs(dfhyp)
+dfhyb2 <- unique_ACRs(dfhyb)
+dfqui2 <- unique_ACRs(dfqui)
+
+dfred_actual <- rbind(dfcau2, dfcru2, dfhyp2, dfhyb2, dfqui2)
+### join overlapping peaks to get list of all unique peaks
+
+
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+grred <- makeGRangesFromDataFrame(dfred)
+grred <- reduce(grred)
+
+library(tidyverse)  
+
+# turn annotation into dataframe
+library(Repitools)
+dfred2 <- annoGR2DF(grred)
+
+#dfred2 %>% ggplot(aes(x=width)) + geom_density()
+
+dfred2 <- dfred2 %>% transmute(chr=chr, start=start, end=end, length=width)
+
+# give each unique peak an identifier
+dfred2 <- dfred2 %>% mutate(peak_name=1:length(dfred2$chr))
+
+# assign peaks in samples to unique peaks
+dfred_pn <- left_join(dfred, dfred2, join_by(chr, within(x$start, x$end, y$start, y$end)))
+dfred_pn2 <- left_join(dfred_actual, dfred2, join_by(chr, within(x$start, x$end, y$start, y$end)))
+
+
+
+
+
+
+
+dfred_pn3 <- dfred_pn2 %>% dplyr::select(species, peak_name)
+
+
+##### this needs to be run after creating the simulated datasets
+  # investigation into "why" is ongoing
+length(list_of_character_vectors[[6]])
+length(list_of_character_vectors)
+dfupset_list <- list()
+
+observed_overlap <- function(species) {
+  
+  for (i in 1:length(list_of_character_vectors)) {
+    species_curr <- list_of_character_vectors[[i]]
+    combi_length <- length(list_of_character_vectors[[i]])
+    
+  print(paste0("iterration_of_input:", i))
+
+  
+  if (combi_length == 1) {
+    print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- "NA"
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+
+    
+    merged_df <- anti_join(species1, species_anti, by = "peak_name")
+
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 2) {
+    print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                                       ungroup() %>% dplyr::select(peak_name)
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+
+    print(paste0("merged_length:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 3) {
+    print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 4) {
+    print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                              filter(!str_detect(species, species_list[[species_no4]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 5) {
+    print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- species_curr[[5]]
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species5 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no5]])) %>% ungroup() %>% distinct(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- inner_join(merged_df, species5, by = "peak_name")
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    #colnames(merged_df) <- combi_name
+    #dftmp <- as.data.frame(merged_df)
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+  }
+  
+  dfupset_list[[i]] <- dftmp
+  # Return NULL or any other indicator to indicate success
+  }
+return(dfupset_list)
+}
+
+
+#observed_overlap_peaks <- sapply(seq_along(list_of_character_vectors), observed_overlap)
+#observed_overlap_peaks <- sapply(list_of_character_vectors, observed_overlap)
+# Apply the function to each element in list_of_character_vectors
+observed_overlap_peaks <- lapply(1, observed_overlap)
+
+observed_overlap_peaks[[1]][1]
+dfobserved <- as.data.frame(unlist(observed_overlap_peaks)) %>% t()
+dfobserved <- as.data.frame(dfobserved)
+rownames(dfobserved) <- c()
+dfobserved
+
+dfred_pn %>% distinct(species, peak_name, .keep_all = TRUE) %>% mutate(species=as.list(species)) %>% ggplot(aes(x=species)) + geom_bar() + scale_x_upset(n_intersections = 25)
+
+```
+
+
+```{r graph }
+dfobserved_t <- dfobserved %>% t()
+dfobserved_t <- as.data.frame(dfobserved_t)
+colnames(dfobserved_t) <- "ACRs"
+dfobserved_t <- dfobserved_t %>% mutate(overlaps=rownames(dfobserved_t)) %>% arrange(desc(overlaps))
+
+dfint2_t <- dfint2 %>% t() %>% as.data.frame()
+colnames(dfint2_t) <- c("lower", "upper")
+dfint2_t <- dfint2_t %>% mutate(overlaps2=rownames(dfint2_t)) %>% arrange(desc(overlaps2))
+
+dfdata <- cbind(dfobserved_t, dfint2_t)
+
+
+
+
+
+
+
+
+#write.csv(dfdata, "~/Documents/projects/ATAC_seq/data/peak_calling/dedup/shared_peaks_significants_permutation_raws.csv")
+
+dfdata <- read.csv("~/Documents/projects/ATAC_seq/data/peak_calling/dedup/shared_peaks_significants_permutation_raws.csv")
+#dfdata <- dfdata %>% arrange(desc(ACRs))
+dfdata$ACRs_overlaps <- interaction(dfdata$overlaps, dfdata$ACRs)
+dfdata$overlaps_ACRs <- interaction(dfdata$ACRs, dfdata$overlaps)
+dfdata %>% arrange(desc(overlaps_ACRs))
+dfdata %>% arrange(desc(ACRs_overlaps))
+
+# choose order of data in plot
+dfdata$ACRs_overlaps_sort <- factor(dfdata$ACRs_overlaps, levels = dfdata$ACRs_overlaps[order(dfdata$ACRs_overlaps, decreasing = TRUE)])
+dfdata$ACRs_sort <- factor(dfdata$ACRs, levels = dfdata$ACRs[order(dfdata$ACRs, decreasing = TRUE)])
+dfdata$overlaps_ACRs_sort <- factor(dfdata$overlaps_ACRs, levels = dfdata$overlaps_ACRs[order(dfdata$overlaps_ACRs, decreasing = TRUE)])
+dfdata$lower_sort <- factor(dfdata$lower, levels = dfdata$lower[order(dfdata$lower, decreasing = TRUE)])
+dfdata$overlaps_sort <- factor(dfdata$overlaps, levels = dfdata$overlaps[order(dfdata$overlaps, decreasing = TRUE)])
+
+
+dfdata <- dfdata %>% mutate(distribution=if_else(ACRs<lower, "depleted", if_else(ACRs>upper, "enriched", "expected")))
+dfdata <- dfdata %>% mutate(distribution=distribution) %>% mutate(error_col="purple")
+
+dfdata %>% ggplot(aes(x=ACRs_overlaps_sort, y=ACRs, fill=distribution)) + geom_col() + 
+  geom_errorbar(aes(ymin=lower, ymax=upper, color=error_col), size=2) +
+  scale_color_manual(values = unique(dfdata$error_col),name="", labels="permutation conf int") +
+  scale_fill_manual(values = c("#44BB99", "#BBCC33", "#EE8866")) +
+    theme(axis.text.x = element_blank(),  # Remove x-axis labels
+        axis.text.y = element_text(size = 35),  # Increase font size and angle of y-axis labels
+        legend.text = element_text(size = 35),  # Increase legend text size
+        legend.title = element_blank(),
+        axis.title = element_text(size = 45),
+        axis.title.x = element_blank())  +
+  labs(y="unique shared OCRs")
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/updated/Species_upsetR_confidence_intervals_permutation_raws_speciescombi_sort.png", width=15, height=10) 
+
+
+dfdata %>% ggplot(aes(x=reorder(overlaps2, -nchar(overlaps2)), y=ACRs, fill=distribution)) + geom_col() + 
+  geom_errorbar(aes(ymin=lower, ymax=upper, color=error_col), size=2) +
+  scale_color_manual(values = unique(dfdata$error_col),name="", labels="permutation conf int") +
+  scale_fill_manual(values = c("#44BB99", "#BBCC33", "#EE8866")) +
+    theme(axis.text.x = element_blank(),  # Remove x-axis labels
+        axis.text.y = element_text(size = 35),  # Increase font size and angle of y-axis labels
+        legend.text = element_text(size = 35),  # Increase legend text size
+        legend.title = element_blank(),
+        axis.title = element_text(size = 45),
+        axis.title.x = element_blank())  +
+  labs(y="unique shared ACRs")
+
+dfdata %>% summarise(sum(ACRs)) 
+dfdata %>% filter(X=="caudatus")
+2780/50163 # caudatus
+dfdata %>% filter(X=="cruentus")
+3277/50163
+dfdata %>% filter(X=="hypochondriacus")
+4368/50163
+dfdata %>% filter(X=="hybridus")
+2879/50163
+```
+
+
+
+
+```{r chunk X: find overlaps test function}
+dfupset_list <- list()
+
+observed_overlap <- function(species, input_df, it) {
+
+  dfred_pn3 <- input_df
+  
+  for (i in 1:length(list_of_character_vectors)) {
+    species_curr <- list_of_character_vectors[[i]]
+    combi_length <- length(list_of_character_vectors[[i]])
+
+
+  if (combi_length == 1) {
+
+    species_no1 <- species_curr[[1]]
+    species_no2 <- "NA"
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+    
+    
+    merged_df <- anti_join(species1, species_anti, by = "peak_name")
+    
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+    
+  } else if (combi_length == 2) {
+
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                                       ungroup() %>% dplyr::select(peak_name)
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+    
+  } else if (combi_length == 3) {
+
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+    
+  } else if (combi_length == 4) {
+
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- "NA"
+    
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfred_pn3 %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                              filter(!str_detect(species, species_list[[species_no4]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 5) {
+
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- species_curr[[5]]
+    species1 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species5 <- dfred_pn3 %>% filter(str_detect(species, species_list[[species_no5]])) %>% ungroup() %>% distinct(peak_name)
+
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- inner_join(merged_df, species5, by = "peak_name")
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+  }
+  
+    
+  dfupset_list[[i]] <- dftmp
+
+  }
+return(dfupset_list)
+}
+```
+
+
+
+
+
+
+```{r calculate expected values}
+
+dfupset_list <- list()
+
+
+observed_overlap <- function(perm) {
+  dfperm_curr <- dfperm_all[[perm]]
+  
+  for (i in 1:length(list_of_character_vectors)) {
+    species_curr <- list_of_character_vectors[[i]]
+    combi_length <- length(list_of_character_vectors[[i]])
+    
+  #print(paste0("iterration_of_input:", i))
+
+  
+  if (combi_length == 1) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- "NA"
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    #print(paste0("species_no1: ", species_no1))
+    
+    species1 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+    species_anti <- dfperm_curr %>% filter(!str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% dplyr::select(peak_name)
+
+    
+    merged_df <- anti_join(species1, species_anti, by = "peak_name")
+    
+    #print(paste0("merged_length2:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 2) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- "NA"
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    #print(paste0("species_no1: ", species_no1))
+    
+    species1 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfperm_curr %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                                       ungroup() %>% dplyr::select(peak_name)
+    
+    #print(paste0("species_1: ", nrow(species1)))
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+
+    #print(paste0("merged_length2:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 3) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- "NA"
+    species_no5 <- "NA"
+    
+    #print(paste0("species_no1: ", species_no1))
+    
+    species1 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfperm_curr %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+    
+    #print(paste0("species_1: ", nrow(species1)))
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    #print(paste0("merged_length3:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 4) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- "NA"
+    
+    #print(paste0("species_no1: ", species_no1))
+    
+    species1 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species_anti <- dfperm_curr %>% filter(!str_detect(species, species_list[[species_no1]])) %>% 
+                                           filter(!str_detect(species, species_list[[species_no2]])) %>%  
+                                                    filter(!str_detect(species, species_list[[species_no3]])) %>%
+                                                              filter(!str_detect(species, species_list[[species_no4]])) %>%
+                                                                       ungroup() %>% dplyr::select(peak_name)
+    
+    #print(paste0("species_1: ", nrow(species1)))
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- anti_join(merged_df, species_anti, by = "peak_name")
+    
+    #print(paste0("merged_length4:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+    
+  } else if (combi_length == 5) {
+    #print(paste0("length_start", combi_length))
+    species_no1 <- species_curr[[1]]
+    species_no2 <- species_curr[[2]]
+    species_no3 <- species_curr[[3]]
+    species_no4 <- species_curr[[4]]
+    species_no5 <- species_curr[[5]]
+    
+    #print(paste0("species_no1: ", species_no1))
+    
+    species1 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no1]])) %>% ungroup() %>% distinct(peak_name)
+    species2 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no2]])) %>% ungroup() %>% distinct(peak_name)
+    species3 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no3]])) %>% ungroup() %>% distinct(peak_name)
+    species4 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no4]])) %>% ungroup() %>% distinct(peak_name)
+    species5 <- dfperm_curr %>% filter(str_detect(species, species_list[[species_no5]])) %>% ungroup() %>% distinct(peak_name)
+    
+    #print(paste0("species_1: ", nrow(species1)))
+    
+    merged_df <- inner_join(species1, species2, by = "peak_name")
+    merged_df <- inner_join(merged_df, species3, by = "peak_name")
+    merged_df <- inner_join(merged_df, species4, by = "peak_name")
+    merged_df <- inner_join(merged_df, species5, by = "peak_name")
+    
+    #print(paste0("merged_length5:", nrow(merged_df )))
+    
+    combi_name <- paste0(species_list[[species_no1]], species_list[[species_no2]], species_list[[species_no3]], species_list[[species_no4]], species_list[[species_no5]])
+    
+    dftmp <- data.frame(species=nrow(merged_df))
+    colnames(dftmp) <- combi_name
+  }
+  
+  dfupset_list[[i]] <- dftmp
+  
+  }
+return(dfupset_list)
+}
+
+
+
+dfint2 <- data.frame(A=1:31)
+merge_perms <- function(wert) {
+  observed_overlap_peaks <- lapply(wert, observed_overlap)
+  
+  dfint <- as.data.frame(unlist(observed_overlap_peaks))
+  
+  dfint2 <- bind_cols(dfint2, dfint)
+  
+  #print(wert)
+}
+
+test <- lapply(1:100, merge_perms)
+
+dftest <- test
+
+
+test2 <- lapply(test, function(df) df[, !(names(df) %in% "A")])
+
+dftest <- as.data.frame(test2)
+colnames(dftest) <- paste0("V", 1:100)
+rownames(dftest) <- pattern_strings
+dftest[,1]
+
+
+
+conf_int <- function(i) {
+  
+  confidence_interval <- t.test(dftest[i,])$conf.int
+  
+  lower <- confidence_interval[[1]]
+  upper <- confidence_interval[[2]]
+  
+  dfint_tmp <- data.frame(species_combi=c(lower, upper))
+  colnames(dfint_tmp) <- species_combi
+  
+  dfint_list[[i]] <- dfint_tmp
+
+}
+
+wert <- sapply(1:nrow(dftest), conf_int)
+wert
+
+names(wert) <- pattern_strings
+dfint <- do.call(cbind, wert)
+
+dfint2 <- as.data.frame(dfint)
+dfint2
+#write.csv(dfint2, "~/Documents/projects/ATAC_seq/data/peak_calling/dedup/simulated_overlapping_peaks_conf_intervals2.csv")
+```
+
+
+
+```{r check expectations}
+# Function to check if observation is outside confidence interval
+check_outside_interval <- function(observation, confidence_interval) {
+  observation < confidence_interval[1] | observation > confidence_interval[2]
+}
+
+# Iterate through columns and check if observations are outside confidence intervals
+result <- map2_df(dfobserved, dfint2, ~check_outside_interval(.x, .y))
+
+# Check which observations are outside confidence intervals
+outliers <- filter(result, rowSums(.))
+
+
+```
+
+
+
+```{r graph}
+dfobserved_t <- dfobserved %>% t()
+dfobserved_t <- as.data.frame(dfobserved_t)
+colnames(dfobserved_t) <- "ACRs"
+dfobserved_t <- dfobserved_t %>% mutate(overlaps=rownames(dfobserved_t)) #%>% arrange(desc(overlaps))
+
+dfint2_t <- dfint2 %>% t() %>% as.data.frame()
+colnames(dfint2_t) <- c("lower", "upper")
+dfint2_t <- dfint2_t %>% mutate(overlaps2=rownames(dfint2_t)) #%>% arrange(desc(overlaps2))
+
+dfdata <- cbind(dfobserved_t, dfint2_t)
+
+dfdata$ACRs_overlaps <- interaction(dfdata$overlaps, dfdata$ACRs)
+
+
+
+#write.csv(dfdata, "~/Documents/projects/ATAC_seq/data/peak_calling/dedup/shared_peaks_significants_permutation.csv")
+
+dfdata <- read.csv("~/Documents/projects/ATAC_seq/data/peak_calling/dedup/shared_peaks_significants.csv")
+#dfdata <- dfdata %>% arrange(desc(ACRs))
+dfdata$ACRs_overlaps <- factor(dfdata$ACRs_overlaps, levels = dfdata$ACRs_overlaps[order(dfdata$ACRs_overlaps, decreasing = TRUE)])
+distribution=c("enriched", "enriched", "enriched", "enriched", "enriched", "depleted", "depleted", "enriched", "enriched", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted", "depleted")
+dfdata <- dfdata %>% mutate(distribution=distribution) %>% mutate(error_col="purple")
+dfdata %>% ggplot(aes(x=ACRs_overlaps, y=ACRs, fill=distribution)) + geom_col() + 
+  geom_errorbar(aes(ymin=lower, ymax=upper, color=error_col), size=2) +
+  scale_color_manual(values = unique(dfdata$error_col),name="", labels="confidence intervals") +
+    theme(axis.text.x = element_blank(),  # Remove x-axis labels
+        axis.text.y = element_text(size = 35),  # Increase font size and angle of y-axis labels
+        legend.text = element_text(size = 35),  # Increase legend text size
+        legend.title = element_blank(),
+        axis.title = element_text(size = 45),
+        axis.title.x = element_blank())  +
+  labs(y="unique shared ACRs")
+
+library(tidyverse)
+dfdata %>% arrange(ACRs)
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/updated/Species_upsetR_confidence_intervals_permutations.png", width=15, height=10) 
+sum(dfdata$upper)
+sum(dfdata$lower)
+sum(dfdata$ACRs)
+```

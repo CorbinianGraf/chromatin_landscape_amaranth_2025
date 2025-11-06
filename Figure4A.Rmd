@@ -1,0 +1,940 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(Repitools)
+library(tidyverse)
+library(cowplot)
+library(reshape2)
+theme_set(theme_cowplot())
+```
+
+```{r}
+
+# load file of all peaks
+setwd("~/Documents/projects/ATAC_seq/data/")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+
+
+# load file of reduced amaranth ACRs
+
+#dfACRs <- read.csv("~/Documents/projects/ATAC_seq/data/peak_calling/dedup/macs3_allpeaks_2perspecies_reduced.csv")
+dfACRs <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_allpeaks_2perspecies_reduced.csv")
+# add columns for PI numbers to reduced ACRs
+
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+overlap_fun <- function(PI_num) {
+  dfPI <- dfpeaks %>% filter(full_sample==dfPIs[PI_num,])
+
+
+
+  grpi <- makeGRangesFromDataFrame(dfPI)
+  gracr <- makeGRangesFromDataFrame(dfACRs)
+
+  ol <- findOverlaps(grpi, gracr)
+  dfol <- as.data.frame(ol)
+
+  dfPIs_tmp[,PI_num] <- as.integer(dfACRs$peak_name %in% dfol$subjectHits)
+  test <- as.integer(dfACRs$peak_name %in% dfol$subjectHits)
+  #return(dfPIs_tmp)
+  return(test)
+}
+
+
+# species has to be changed manually
+dfPIs <- dfpeaks %>% distinct(full_sample)
+dfPIs_tmp <- data.frame(matrix(NA, nrow=nrow(dfACRs), ncol=nrow(dfPIs)))
+colnames(dfPIs_tmp) <- dfPIs$full_sample
+
+
+species <- c("caudatus", "cruentus", "hypochondriacus", "hybridus", "quitensis")
+
+# number of PIs has to be 3 for cruentus and hybridus
+result <- lapply(1:nrow(dfPIs), overlap_fun)
+
+dfspecies_PIs <- as.data.frame(result)
+
+colnames(dfspecies_PIs) <- dfPIs$full_sample
+dfspecies_PIs
+
+dfspecies_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+#write_csv(dfspecies_PIs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_quitensis.csv")
+# add 0 or 1 depending if ACR exists in all peaks file
+
+```
+
+
+
+
+```{r}
+
+# load file of all peaks
+setwd("~/Documents/projects/ATAC_seq/data/")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+
+
+
+
+# load file of reduced amaranth ACRs
+
+#dfACRs <- read.csv("~/Documents/projects/ATAC_seq/data/peak_calling/dedup/macs3_allpeaks_2perspecies_reduced.csv")
+dfACRs <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ahypv3_allpeaks_2perspecies_reduced.csv")
+# add columns for PI numbers to reduced ACRs
+
+
+
+
+
+
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+overlap_fun <- function(PI_num) {
+  dfPI <- dfpeaks %>% filter(Accession==dfPIs[PI_num,])
+
+
+
+  grpi <- makeGRangesFromDataFrame(dfPI)
+  gracr <- makeGRangesFromDataFrame(dfACRs)
+
+  ol <- findOverlaps(grpi, gracr)
+  dfol <- as.data.frame(ol)
+
+  dfPIs_tmp[,PI_num] <- as.integer(dfACRs$peak_name %in% dfol$subjectHits)
+  test <- as.integer(dfACRs$peak_name %in% dfol$subjectHits)
+  #return(dfPIs_tmp)
+  return(test)
+}
+
+
+# species has to be changed manualy
+dfPIs <- dfpeaks %>% filter(species=="quitensis") %>% distinct(Accession)
+dfPIs_tmp <- data.frame(A=rep(NA,nrow(dfACRs)), B=rep(NA,nrow(dfACRs)), C=rep(NA,nrow(dfACRs)), D=rep(NA,nrow(dfACRs)))
+colnames(dfPIs_tmp) <- dfPIs$Accession
+
+
+species <- c("caudatus", "cruentus", "hypochondriacus", "hybridus", "quitensis")
+
+# number of PIs has to be 3 for cruentus and hybridus
+result <- lapply(1:4, overlap_fun)
+
+dfspecies_PIs <- as.data.frame(result)
+
+colnames(dfspecies_PIs) <- dfPIs$Accession
+dfspecies_PIs
+
+dfspecies_PIs <- cbind(dfACRs, dfspecies_PIs)
+
+#write_csv(dfspecies_PIs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_quitensis.csv")
+# add 0 or 1 depending if ACR exists in all peaks file
+
+
+```
+
+
+
+#### fraction of genome that changes state based on unique OCRs
+
+```{r}
+dffst_cau <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_caudatus.csv")
+dffst_cru <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_cruentus.csv")
+dffst_hyp <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hypochondriacus.csv")
+dffst_hyb <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hybridus.csv")
+dffst_qui <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_quitensis.csv")
+
+dffst_cau %>% rowwise() %>% mutate(sum= sum(c_across(6:9))) %>% filter(sum==4)
+dffst_cru %>% rowwise() %>% mutate(sum= sum(c_across(6:8))) %>% filter(sum==3)
+dffst_hyp %>% rowwise() %>% mutate(sum= sum(c_across(6:9))) %>% filter(sum==4)
+dffst_hyb %>% rowwise() %>% mutate(sum= sum(c_across(6:8))) %>% filter(sum==3)
+dffst_qui %>% rowwise() %>% mutate(sum= sum(c_across(6:9))) %>% filter(sum==4)
+
+
+dffst_cau2 <- dffst_cau %>% mutate(freq = (rowSums(dplyr::select(., PI490612:PI608019) == 1))/4)
+dffst_cru2 <- dffst_cru %>% mutate(freq = (rowSums(dplyr::select(., PI511717:PI511714) == 1))/3)
+dffst_hyp2 <- dffst_hyp %>% mutate(freq = (rowSums(dplyr::select(., PI558499:PI604581) == 1))/4)
+dffst_hyb2 <- dffst_hyb %>% mutate(freq = (rowSums(dplyr::select(., PI511754:PI490489) == 1))/3)
+dffst_qui2 <- dffst_qui %>% mutate(freq = (rowSums(dplyr::select(., PI490466:PI511745) == 1))/4)
+nrow(dfcomp)
+
+dffst_cau2 %>% filter(freq==1)
+dffst_cru2
+dffst_hyp2
+dffst_hyb2 
+dffst_qui2
+
+
+dffst_all <- dffst_cau2 %>% left_join(dffst_cru2, by=c("chr", "start", "end", "length", "peak_name")) %>%
+  left_join(dffst_hyp2, by=c("chr", "start", "end", "length", "peak_name")) %>%
+  left_join(dffst_hyb2, by=c("chr", "start", "end", "length", "peak_name")) %>%
+  left_join(dffst_qui2, by=c("chr", "start", "end", "length", "peak_name"))
+
+dffst_all <- dffst_all %>% rename(cau_freq=freq.x, cru_freq=freq.y, hyp_freq=freq.x.x, hyb_freq=freq.y.y, qui_freq=freq)
+
+dffst_all %>% filter(cau_freq>0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 7881. # 0.1528184 of all ACRs  # 0.01004471	bps
+dffst_all %>% filter(cau_freq==0) %>% filter(hyb_freq>0) %>% summarise(sum(length))/434863491 # 5241. # 0.1016269  # 0.007274393	bps
+
+dffst_all %>% filter(cru_freq>0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 5700. # 0.1105272  # 0.007918662	bps			
+dffst_all %>% filter(cru_freq==0) %>% filter(hyb_freq>0) %>% summarise(sum(length))/434863491 # 7893. # 0.1530511  # 0.01130581	bps
+
+dffst_all %>% filter(hyp_freq>0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 7432. # 0.144112  # 0.01022185	bps
+dffst_all %>% filter(hyp_freq==0) %>% filter(hyb_freq>0) %>% summarise(sum(length))/434863491 # 5886. # 0.1141339  # 0.007186782	bps
+
+dffst_all %>% filter(qui_freq>0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 5662. # 0.1097904  # 0.007960797	bps
+dffst_all %>% filter(qui_freq==0) %>% filter(hyb_freq>0) %>% summarise(sum(length))/434863491 # 7271. # 0.1409901  # 0.009442308 bps
+
+
+dffst_all %>% filter(cau_freq>=0) %>% filter(hyb_freq==0, cru_freq==0, hyp_freq==0, qui_freq==0)
+dffst_all %>% filter(cau_freq>=0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 7881. # 0.1528184 of all ACRs  # 0.01004471	bps
+dffst_all %>% filter(cau_freq==0) %>% filter(hyb_freq>=0) %>% summarise(sum(length))/434863491 # 5241. # 0.1016269  # 0.007274393	bps
+
+dffst_all %>% filter(cru_freq>=0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 5700. # 0.1105272  # 0.007918662	bps			
+dffst_all %>% filter(cru_freq==0) %>% filter(hyb_freq>=0) %>% summarise(sum(length))/434863491 # 7893. # 0.1530511  # 0.01130581	bps
+
+dffst_all %>% filter(hyp_freq>0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 7432. # 0.144112  # 0.01022185	bps
+dffst_all %>% filter(hyp_freq==0) %>% filter(hyb_freq>0) %>% summarise(sum(length))/434863491 # 5886. # 0.1141339  # 0.007186782	bps
+
+dffst_all %>% filter(qui_freq>0) %>% filter(hyb_freq==0) %>% summarise(sum(length))/434863491 # 5662. # 0.1097904  # 0.007960797	bps
+dffst_all %>% filter(qui_freq==0) %>% filter(hyb_freq>0) %>% summarise(sum(length))/434863491 # 7271. # 0.1409901  # 0.009442308 bps
+
+
+dffst_all %>% filter(hyb_freq==0) %>% summarise(
+    col1_col2 = sum(cau_freq == 1 & cru_freq == 1, na.rm = TRUE), # 59
+    col1_col3 = sum(cau_freq == 1 & hyp_freq == 1, na.rm = TRUE), # 58
+    col2_col3 = sum(cru_freq == 1 & hyp_freq == 1, na.rm = TRUE),  # 49
+    col_all = sum(cru_freq == 1 & hyp_freq == 1 & cau_freq == 1, hyb_freq==0, na.rm = TRUE)  # 15
+  )
+
+dffst_all %>% filter(hyb_freq==1) %>% summarise(
+    col1_col2 = sum(cau_freq == 0 & cru_freq == 0, na.rm = TRUE), # 158
+    col1_col3 = sum(cau_freq == 0 & hyp_freq == 0, na.rm = TRUE), # 150
+    col2_col3 = sum(cru_freq == 0 & hyp_freq == 0, na.rm = TRUE), # 142
+    col_all = sum(cru_freq == 0 & hyp_freq == 0 & cau_freq == 0, na.rm = TRUE)  # 82
+  )
+
+dffst_all %>% summarise(
+    col1_col2 = sum(cau_freq == 1 & hyb_freq == 0, na.rm = TRUE), # 645
+    col1_col3 = sum(cru_freq == 1 & hyb_freq == 0, na.rm = TRUE), # 726
+    col2_col3 = sum(hyp_freq == 1 & hyb_freq == 0, na.rm = TRUE)  # 229
+  )
+
+dffst_all %>% summarise(
+    col1_col2 = sum(cau_freq == 0 & hyb_freq == 1, na.rm = TRUE), # 398
+    col1_col3 = sum(cru_freq == 0 & hyb_freq == 1, na.rm = TRUE), # 563
+    col2_col3 = sum(hyp_freq == 0 & hyb_freq == 1, na.rm = TRUE)  # 332
+  )
+
+# do ACRs that opened significantly overlap?
+
+m <- 1600#nrow(dfACRs)  # all ACRs-n (all elements)
+n <- 645 # dACRs species1 (positive elements)
+k <- 726 # dACRs species2 (draws)
+q <- 59 # overlap (sample/ positive events)
+
+phyper(q, m, n, k, lower.tail = FALSE)  # 1
+phyper(q, m, n, k, lower.tail = TRUE)   # 0
+
+m <- 1600#nrow(dfACRs)  # all ACRs-n (all elements)
+n <- 645 # dACRs species1 (positive elements)
+k <- 229 # dACRs species2 (draws)
+q <- 58 # overlap (sample/ positive events)
+
+phyper(q, m, n, k, lower.tail = FALSE)  # 1
+phyper(q, m, n, k, lower.tail = TRUE)   # 8.853917e-53
+
+m <- 1600#nrow(dfACRs)  # all ACRs-n (all elements)
+n <- 726 # dACRs species1 (positive elements)
+k <- 229 # dACRs species2 (draws)
+q <- 49 # overlap (sample/ positive events)
+
+phyper(q, m, n, k, lower.tail = FALSE)  # 1
+phyper(q, m, n, k, lower.tail = TRUE)   # 4.720796e-55
+
+
+# do ACRs that closed significantly overlap?
+
+m <- 1293#nrow(dfACRs)  # all ACRs-n (all elements)
+n <- 398 # dACRs species1 (positive elements)
+k <- 563 # dACRs species2 (draws)
+q <- 158 # overlap (sample/ positive events)
+
+phyper(q, m, n, k, lower.tail = FALSE)  # 1
+phyper(q, m, n, k, lower.tail = TRUE)   # 4.720796e-55
+
+m <- 1293#nrow(dfACRs)  # all ACRs-n (all elements)
+n <- 398 # dACRs species1 (positive elements)
+k <- 332 # dACRs species2 (draws)
+q <- 150 # overlap (sample/ positive events)
+
+phyper(q, m, n, k, lower.tail = FALSE)  # 1
+phyper(q, m, n, k, lower.tail = TRUE)   # 0
+
+m <- 1293#nrow(dfACRs)  # all ACRs-n (all elements)
+n <- 563 # dACRs species1 (positive elements)
+k <- 332 # dACRs species2 (draws)
+q <- 142 # overlap (sample/ positive events)
+
+phyper(q, m, n, k, lower.tail = FALSE)  # 1
+phyper(q, m, n, k, lower.tail = TRUE)   # 6.529158e-45
+dffst_all %>% summarise(sum(length))
+
+
+
+
+
+
+
+dffst_all %>% filter(freq.y.y==0) %>% summarise(
+    col1_col2 = sum(freq.x == 1 & freq.y == 1, na.rm = TRUE), # 59
+    col1_col3 = sum(freq.x == 1 & freq.x.x == 1, na.rm = TRUE), # 58
+    col2_col3 = sum(freq.y == 1 & freq.x.x == 1, na.rm = TRUE),  # 49
+    col_all = sum(freq.y == 1 & freq.x.x == 1 & freq.x == 1, na.rm = TRUE)  # 15
+  )
+
+dffst_all %>% filter(freq.y.y==1) %>% summarise(
+    col1_col2 = sum(freq.x == 0 & freq.y == 0, na.rm = TRUE), # 158
+    col1_col3 = sum(freq.x == 0 & freq.x.x == 0, na.rm = TRUE), # 150
+    col2_col3 = sum(freq.y == 0 & freq.x.x == 0, na.rm = TRUE), # 142
+    col_all = sum(freq.y == 0 & freq.x.x == 0 & freq.x == 0, na.rm = TRUE)  # 82
+  )
+
+
+dffst_all %>% summarise(
+    col1_col2 = sum(cau_freq == 1 & hyb_freq == 0, na.rm = TRUE), # 645
+    col1_col3 = sum(cru_freq == 1 & hyb_freq == 0, na.rm = TRUE), # 726
+    col2_col3 = sum(hyp_freq == 1 & hyb_freq == 0, na.rm = TRUE)  # 229
+  )
+
+dffst_all %>% summarise(
+    col1_col2 = sum(cau_freq == 0 & hyb_freq == 1, na.rm = TRUE), # 398
+    col1_col3 = sum(cru_freq == 0 & hyb_freq == 1, na.rm = TRUE), # 563
+    col2_col3 = sum(hyp_freq == 0 & hyb_freq == 1, na.rm = TRUE)  # 332
+  )
+
+645-59-58-15
+398-158-150-82
+
+726-58-29-15
+563-158-150-82
+
+
+653+571+165+58+58+49+15
+```
+
+
+```{r}
+
+library(UpSetR)
+# example upsetR code
+#upset(fromList(list), order.by = "freq", nsets = 8)
+#upset_plot <- upset(fromList(list), order.by = "freq", nsets = 8)
+
+df1  <- data.frame(caudatus = 1, cruentus = 0, hypochondriacus = 0) %>% dplyr::slice(rep(1, 571))
+df2  <- data.frame(caudatus = 0, cruentus = 1, hypochondriacus = 0) %>% dplyr::slice(rep(1, 653))
+df3  <- data.frame(caudatus = 0, cruentus = 0, hypochondriacus = 1) %>% dplyr::slice(rep(1, 165))
+df4  <- data.frame(caudatus = 1, cruentus = 1, hypochondriacus = 0) %>% dplyr::slice(rep(1, 59))
+df5  <- data.frame(caudatus = 1, cruentus = 0, hypochondriacus = 1) %>% dplyr::slice(rep(1, 58))
+df6  <- data.frame(caudatus = 0, cruentus = 1, hypochondriacus = 1) %>% dplyr::slice(rep(1, 49))
+df7  <- data.frame(caudatus = 1, cruentus = 1, hypochondriacus = 1) %>% dplyr::slice(rep(1, 15))
+
+# Combine all dataframes
+df <- bind_rows(df1, df2, df3, df4, df5, df6, df7)
+
+# Shuffle the rows to randomize order
+dfopen_ACRs <- df[sample(nrow(df)), ]
+
+
+df1  <- data.frame(caudatus = 1, cruentus = 0, hypochondriacus = 0) %>% dplyr::slice(rep(1, 158))
+df2  <- data.frame(caudatus = 0, cruentus = 1, hypochondriacus = 0) %>% dplyr::slice(rep(1, 331))
+df3  <- data.frame(caudatus = 0, cruentus = 0, hypochondriacus = 1) %>% dplyr::slice(rep(1, 108))
+df4  <- data.frame(caudatus = 1, cruentus = 1, hypochondriacus = 0) %>% dplyr::slice(rep(1, 158))
+df5  <- data.frame(caudatus = 1, cruentus = 0, hypochondriacus = 1) %>% dplyr::slice(rep(1, 150))
+df6  <- data.frame(caudatus = 0, cruentus = 1, hypochondriacus = 1) %>% dplyr::slice(rep(1, 142))
+df7  <- data.frame(caudatus = 1, cruentus = 1, hypochondriacus = 1) %>% dplyr::slice(rep(1, 82))
+
+# Combine all dataframes
+df <- bind_rows(df1, df2, df3, df4, df5, df6, df7)
+
+# Shuffle the rows to randomize order
+dfclosed_ACRs <- df[sample(nrow(df)), ]
+
+png(filename ="~/Documents/projects/ATAC_seq/figures/ahypv3/dACRS_UpsetR_open2.png")
+
+upset(dfopen_ACRs, sets = c("caudatus", "cruentus", "hypochondriacus"), text.scale = c(2, 2, 2, 2, 2, 2))
+
+#text.scale=c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+
+while (!is.null(dev.list())) dev.off()
+```
+
+
+
+
+
+#### upsetR for dom OCRs
+
+```{r}
+dffst_cauhyb <- dffst_all %>% filter(cau_freq>0) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="caudatus", state="open")
+dffst_hybcau <- dffst_all %>% filter(cau_freq==0) %>% filter(hyb_freq>0) %>% transmute(peak_name=peak_name, species="caudatus", state="closed")
+
+dffst_cruhyb <- dffst_all %>% filter(cru_freq>0) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="cruentus", state="open")
+dffst_hybcru <- dffst_all %>% filter(cru_freq==0) %>% filter(hyb_freq>0) %>% transmute(peak_name=peak_name, species="cruentus", state="closed")
+
+dffst_hyphyb <- dffst_all %>% filter(hyp_freq>0) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="hypochondriacus", state="open")
+dffst_hybhyp <- dffst_all %>% filter(hyp_freq==0) %>% filter(hyb_freq>0) %>% transmute(peak_name=peak_name, species="hypochondriacus", state="closed")
+
+dffst_quihyb <- dffst_all %>% filter(qui_freq>0) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="quitensis", state="open")
+dffst_hybqui <- dffst_all %>% filter(qui_freq==0) %>% filter(hyb_freq>0) %>% transmute(peak_name=peak_name, species="quitensis", state="closed")
+
+
+dffst_dom <- rbind(dffst_cauhyb, dffst_hybcau, dffst_cruhyb, dffst_hybcru, dffst_hyphyb, dffst_hybhyp)
+
+
+dom_list <- split(dffst_dom$peak_name, dffst_dom$species)
+
+dffst_dom <- dffst_dom %>% mutate(second_order=paste(species, state, sep="_")) 
+dom_list <- split(dffst_dom$peak_name, dffst_dom$second_order)
+
+
+library(UpSetR)
+
+
+setwd("~/Documents/projects/ATAC_seq/figures/ahypv3")
+png(filename ="UpsetR_species_dom_OCRs3.png")
+upset(fromList(dom_list), order.by = "freq", sets = c("hypochondriacus_closed", "cruentus_closed", "caudatus_closed", "hypochondriacus_open", "cruentus_open", "caudatus_open"), keep.order = TRUE, text.scale=c(1.3, 1.3, 1, 1, 2, 1))
+#text.scale=c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+#, sets = c("hypochondriacus_closed", "cruentus_closed", "caudatus_closed", "hypochondriacus_open", "cruentus_open", "caudatus_open")
+#, sets = c("caudatus_open", "cruentus_open", "hypochondriacus_open", "caudatus_closed", "cruentus_closed", "hypochondriacus_closed")
+
+setwd("~/Documents/projects/ATAC_seq/figures/ahypv3")
+while (!is.null(dev.list())) dev.off()
+
+
+
+
+
+
+####   species specific OCRs
+
+dffst_cauhyb <- dffst_all %>% filter(cau_freq==1) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="caudatus", state="open")
+dffst_hybcau <- dffst_all %>% filter(cau_freq==0) %>% filter(hyb_freq==1) %>% transmute(peak_name=peak_name, species="caudatus", state="closed")
+
+dffst_cruhyb <- dffst_all %>% filter(cru_freq==1) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="cruentus", state="open")
+dffst_hybcru <- dffst_all %>% filter(cru_freq==0) %>% filter(hyb_freq==1) %>% transmute(peak_name=peak_name, species="cruentus", state="closed")
+
+dffst_hyphyb <- dffst_all %>% filter(hyp_freq==1) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="hypochondriacus", state="open")
+dffst_hybhyp <- dffst_all %>% filter(hyp_freq==0) %>% filter(hyb_freq==1) %>% transmute(peak_name=peak_name, species="hypochondriacus", state="closed")
+
+dffst_quihyb <- dffst_all %>% filter(qui_freq==1) %>% filter(hyb_freq==0) %>% transmute(peak_name=peak_name, species="quitensis", state="open")
+dffst_hybqui <- dffst_all %>% filter(qui_freq==0) %>% filter(hyb_freq==1) %>% transmute(peak_name=peak_name, species="quitensis", state="closed")
+
+
+dffst_dom <- rbind(dffst_cauhyb, dffst_hybcau, dffst_cruhyb, dffst_hybcru, dffst_hyphyb, dffst_hybhyp)
+
+
+dom_list <- split(dffst_dom$peak_name, dffst_dom$species)
+
+dffst_dom <- dffst_dom %>% mutate(second_order=paste(species, state, sep="_")) 
+dom_list <- split(dffst_dom$peak_name, dffst_dom$second_order)
+
+
+library(UpSetR)
+
+
+setwd("~/Documents/projects/ATAC_seq/figures/ahypv3")
+png(filename ="UpsetR_species_specific_dom_OCRs.png")
+upset(fromList(dom_list), order.by = "freq", keep.order = TRUE, text.scale=c(1.3, 1.3, 1, 1, 2, 1))
+#text.scale=c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+#, sets = c("hypochondriacus_closed", "cruentus_closed", "caudatus_closed", "hypochondriacus_open", "cruentus_open", "caudatus_open")
+#, sets = c("caudatus_open", "cruentus_open", "hypochondriacus_open", "caudatus_closed", "cruentus_closed", "hypochondriacus_closed")
+
+setwd("~/Documents/projects/ATAC_seq/figures/ahypv3")
+while (!is.null(dev.list())) dev.off()
+```
+
+
+
+```{r}
+dffst_cau <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_caudatus.csv")
+dffst_cru <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_cruentus.csv")
+dffst_hyp <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hypochondriacus.csv")
+dffst_hyb <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hybridus.csv")
+dffst_qui <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_quitensis.csv")
+
+
+dffst_cau2 <- dffst_cau %>% mutate(freq = (rowSums(dplyr::select(., PI490612:PI608019) == 1))/4)
+dffst_cru2 <- dffst_cru %>% mutate(freq = (rowSums(dplyr::select(., PI511717:PI511714) == 1))/3)
+dffst_hyp2 <- dffst_hyp %>% mutate(freq = (rowSums(dplyr::select(., PI558499:PI604581) == 1))/4)
+dffst_hyb2 <- dffst_hyb %>% mutate(freq = (rowSums(dplyr::select(., PI511754:PI490489) == 1))/3)
+dffst_qui2 <- dffst_qui %>% mutate(freq = (rowSums(dplyr::select(., PI490466:PI511745) == 1))/4)
+
+
+
+dffst_cau2 %>% filter(freq==1)
+
+
+
+write_csv(dfheat, "~/Documents/projects/ATAC_seq/nature_comm_publication/data/Figure4A_hypochondriacus_SFS.csv")
+
+
+# caudatus - hybridus
+dfcomp <- data.frame(cau_freq=dffst_cau2$freq, hyb_freq=dffst_hyb2$freq)
+dfheat <- dfcomp %>% group_by_all() %>% mutate(freq_freq=n()) %>% distinct() %>% mutate(SFS=freq_freq/51571)
+
+ggplot(dfheat, aes(hyb_freq, cau_freq, fill= freq_freq)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdPu", direction = 1, limits = c(0, 10000)) +
+  theme(axis.text.x = element_text(face="bold", size=50, angle=0),
+        axis.title=element_text(face="bold.italic", size=60),
+        axis.text.y = element_text(face="bold", size=50, angle=55, vjust = -0.1)) + 
+  theme(legend.text = element_text(face = "bold", size = 45),
+        legend.title = element_text(face = "bold", size = 50, margin = margin(b=30))) +
+  theme(legend.key.height = unit(1.5, "cm"),
+        legend.key.width = unit(1, "cm")) +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.25)) +
+  scale_x_continuous(breaks = c(0, 0.33, 0.66, 1)) +
+  xlab("A. hybridus") + 
+  ylab("A. caudatus") +
+  labs(fill = "frequency")
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/heatmap_cau_hyb_bigger_wider.pdf", width=17, height=10)
+ggsave(filename = "~/Documents/projects/ATAC_seq/nature_comm_publication/figures//heatmap_cau_hyb_bigger_wider.pdf", width=17, height=10)
+
+dfheat %>% filter(cau_freq==1.00, hyb_freq==0.00)
+
+
+
+
+
+# cruentus - hybridus
+dfcomp <- data.frame(cru_freq=dffst_cru2$freq, hyb_freq=dffst_hyb2$freq)
+dfheat <- dfcomp %>% group_by_all() %>% mutate(freq_freq=n()) %>% distinct() %>% mutate(SFS=freq_freq/51571)
+
+ggplot(dfheat, aes(hyb_freq, cru_freq, fill= freq_freq)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdPu", direction = 1, limits = c(0, 10000)) +
+  theme(axis.text.x = element_text(face="bold", size=50, angle=0),
+        axis.title=element_text(face="bold.italic", size=60),
+        axis.text.y = element_text(face="bold", size=50, angle=55, vjust = -0.1)) + 
+  theme(legend.text = element_text(face = "bold", size = 45),
+        legend.title = element_text(face = "bold", size = 50, margin = margin(b=30))) +
+  theme(legend.key.height = unit(1.5, "cm"),
+        legend.key.width = unit(1, "cm")) +
+  scale_x_continuous(breaks = c(0, 0.33, 0.66, 1)) +
+  scale_y_continuous(breaks = c(0, 0.33, 0.66, 1)) +
+  ylab("A. cruentus") + 
+  xlab("A. hybridus") +
+  labs(fill = "frequency")
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/heatmap_cru_hyb_bigger_wider.pdf", width=17, height=10)
+ggsave(filename = "~/Documents/projects/ATAC_seq/nature_comm_publication/figures//heatmap_cru_hyb_bigger_wider.pdf", width=17, height=10)
+
+dfheat %>% filter(cru_freq==1.00, hyb_freq==0.00)
+
+
+
+# hypochondriacus - hybridus
+dfcomp <- data.frame(hyp_freq=dffst_hyp2$freq, hyb_freq=dffst_hyb2$freq)
+dfheat <- dfcomp %>% group_by_all() %>% mutate(freq_freq=n()) %>% distinct() %>% mutate(SFS=freq_freq/51571)
+
+dfcomp %>% filter(hyp_freq==1, hyb_freq==0)
+ggplot(dfheat, aes(hyb_freq, hyp_freq, fill= freq_freq)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdPu", direction = 1, limits = c(0, 10000)) +
+  theme(axis.text.x = element_text(face="bold", size=50, angle=0),
+        axis.title=element_text(face="bold.italic", size=60),
+        axis.text.y = element_text(face="bold", size=50, angle=55, vjust = -0.1)) + 
+  theme(legend.text = element_text(face = "bold", size = 45),
+        legend.title = element_text(face = "bold", size = 50, margin = margin(b=30))) +
+  theme(legend.key.height = unit(1.5, "cm"),
+        legend.key.width = unit(1, "cm")) +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.25)) +
+  scale_x_continuous(breaks = c(0, 0.33, 0.66, 1)) +
+  ylab("A. hypochondriacus") + 
+  xlab("A. hybridus") +
+  labs(fill = "frequency")
+
+#ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/heatmap_hyp_hyb_bigger_wider.pdf", width=17, height=10)
+ggsave(filename = "~/Documents/projects/ATAC_seq/nature_comm_publication/figures//heatmap_hyp_hyb_bigger_wider.pdf", width=17, height=10)
+
+dfheat %>% filter(hyp_freq==1.00, hyb_freq==0.00)
+
+
+
+# hybridus - quitensis
+dfcomp <- data.frame(hyb_freq=dffst_hyb2$freq, qui_freq=dffst_qui$freq)
+dfheat <- dfcomp %>% group_by_all() %>% mutate(freq_freq=n()) %>% distinct() %>% mutate(SFS=freq_freq/51571)
+
+ggplot(dfheat, aes(hyb_freq, qui_freq, fill= freq_freq)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdPu", direction = 1) +
+  theme(axis.text.x = element_text(face="bold", size=35, angle=45, hjust=1),
+        axis.text.y = element_text(face="bold", size=35)) + 
+  theme(axis.text.x = element_text(face="bold", size=35, angle = 45, hjust=1)) +
+  theme(axis.text.x = element_text(size=35, angle=45, hjust=1),
+        axis.title=element_text(size=45,face="bold"),
+        axis.text.y = element_text(face="bold", size=35, hjust=1)) + 
+  theme(legend.text = element_text(size = 25, face = "bold"),
+        legend.title = element_text(size = 30, face = "bold")) + 
+  scale_x_continuous(breaks = seq(0, 1, by = 0.25)) +
+  scale_y_continuous(breaks = c(0, 0.33, 0.66, 1)) +
+  xlab("hybridus") + 
+  ylab("quitensis") +
+  labs(fill = "frequency")
+
+
+dfcomp_cau <- dffst_cau2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cau_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cau_freq==1.00, hyb_freq==0.00)
+dfcomp %>% filter(cau_freq==1.00, hyb_freq==0.00) %>% summarize(total=sum(length)/439000000)
+
+dfcomp_cru <- dffst_cru2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, cru_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(cru_freq==1.00, hyb_freq==0.00)
+dfcomp %>% filter(cru_freq==1.00, hyb_freq==0.00) %>% summarize(total=sum(length)/439000000)
+
+dfcomp_hyp <- dffst_hyp2 %>% transmute(chr=chr, start=start, end=end, length=length, peak_name=peak_name, hyp_freq=freq, hyb_freq=dffst_hyb2$freq) %>% filter(hyp_freq==1.00, hyb_freq==0.00)
+dfcomp %>% filter(hyp_freq==1.00, hyb_freq==0.00) %>% summarize(total=sum(length)/439000000)
+
+
+
+dfcomp <- data.frame(OCR_ID=1:nrow(dffst_cau2), length=dffst_cau2$length, hyp_freq=dffst_cau2$freq, hyb_freq=dffst_hyb2$freq)
+dfcomp %>% filter(hyp_freq==1.00, hyb_freq==0.00) %>% summarize(total=sum(length)/439000000)
+dfheat <- dfcomp %>% group_by_all() %>% mutate(freq_freq=n()) %>% distinct() %>% mutate(SFS=freq_freq/51571)
+
+dfheat %>% filter(cau_freq==1.00)
+dfheat %>% filter(cau_freq==1.00, hyb_freq==0.00)
+
+dffst_hyp2 %>% filter(freq==1) %>% summarise(sum(length))/439000000
+
+```
+
+
+
+
+```{r GO term analysis}
+library(Repitools)
+library(tidyverse)
+library(cowplot)
+library(reshape2)
+library(goseq)
+theme_set(theme_cowplot())
+
+dffst_cau <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_caudatus.csv")
+dffst_cru <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_cruentus.csv")
+dffst_hyp <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hypochondriacus.csv")
+dffst_hyb <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_hybridus.csv")
+dffst_qui <- read.csv("~/Documents/projects/ATAC_seq/data/ahyp_v3/peak_calling/ACRs_PImatrix_quitensis.csv")
+
+dffst_cau2 <- dffst_cau %>% mutate(freq = (rowSums(select(., PI490612:PI608019) == 1))/4)
+dffst_cru2 <- dffst_cru %>% mutate(freq = (rowSums(select(., PI511717:PI511714) == 1))/3)
+dffst_hyp2 <- dffst_hyp %>% mutate(freq = (rowSums(select(., PI558499:PI604581) == 1))/4)
+dffst_hyb2 <- dffst_hyb %>% mutate(freq = (rowSums(select(., PI511754:PI490489) == 1))/3)
+dffst_qui2 <- dffst_qui %>% mutate(freq = (rowSums(select(., PI490466:PI511745) == 1))/4)
+nrow(dfcomp)
+
+# caudatus - hybridus
+dfcomp_cau <- data.frame(chr=dffst_cau$chr, start=dffst_cau$start, end=dffst_cau$end, cau_freq=dffst_cau2$freq, hyb_freq=dffst_hyb2$freq)
+dfcomp_cau <- dfcomp_cau %>% filter(cau_freq==1, hyb_freq==0)
+# hybridus-cruentus
+dfcomp_cru <- data.frame(chr=dffst_cru$chr, start=dffst_cru$start, end=dffst_cru$end, cru_freq=dffst_cru2$freq, hyb_freq=dffst_hyb2$freq)
+dfcomp_cru <- dfcomp_cru %>% filter(cru_freq==1, hyb_freq==0)
+# hybridus-cruentus
+dfcomp_hyp <- data.frame(chr=dffst_hyp$chr, start=dffst_hyp$start, end=dffst_hyp$end, hyp_freq=dffst_hyp2$freq, hyb_freq=dffst_hyb2$freq)
+dfcomp_hyp <- dfcomp_hyp %>% filter(hyp_freq==1, hyb_freq==0)
+
+
+
+dfref <- dfcomp_cau
+
+library(GenomicRanges)
+GRref <- makeGRangesFromDataFrame(dfref)
+
+# removing tidyr, lubridate, purrr is needed so that reduce() will work
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+# libraries for analysis
+library(ChIPpeakAnno)
+library(GenomicRanges)
+library(GenomicFeatures)
+
+GRref <- reduce(GRref)
+
+library(rtracklayer)
+library(tidyverse)
+setwd("~/Documents/projects/ATAC_seq/data/ref_genomes")
+#gff <- makeTxDbFromGFF("Ahypochondriacus_2.2_polished_corrected_chr_nocont.gff")
+gff <- makeTxDbFromGFF("Ahypochondriacus_v3_chrX.gff")
+
+annoData <- toGRanges(gff, feature="gene")
+annoData
+all_genes <- annoGR2DF(annoData)
+all_genes <- all_genes %>% mutate(anno=rownames(all_genes))
+#ol <- findOverlapsOfPeaks(GRref, annoData)
+
+overlaps.anno <- annotatePeakInBatch(GRref, AnnotationData = annoData, output="overlapping", maxgap=2000)
+ol.anno
+
+
+# dataframe containing open genes
+
+anno_genes <- annoGR2DF(overlaps.anno) %>% transmute(peak=peak, gene=feature, overlap=insideFeature)
+anno_genes
+anno_genes %>% drop_na() %>% distinct(peak)
+
+geneswpeaks <- anno_genes %>% distinct(gene) %>% filter(!is.na(gene))
+all.genes <- as.integer(all_genes$anno %in% geneswpeaks$gene)
+names(all.genes) <- rownames(all_genes)
+
+
+# create named vector specifying the gene length
+#raw_lengths <- read.table("~/Downloads/Ahypochondriacus_2.2_polished_corrected.cds.fasta.fai")
+raw_lengths <- read.table("~/Documents/projects/ATAC_seq/data/ref_genomes/Ahypochondriacus_v3.cds.fasta.fai")
+
+raw_lengths <- raw_lengths[,1:2]
+colnames(raw_lengths) <- c("transcript_id", "length")
+
+raw_lengths <- raw_lengths %>%
+  mutate(gene_id = gsub("\\..*", "", transcript_id))
+
+raw_lengths <- raw_lengths %>%
+  group_by(gene_id) %>%
+  summarize(mean_length = median(length))
+raw_lengths
+
+# construct vector subset for expressed genes
+gene.length <- raw_lengths$mean_length
+names(gene.length) <- raw_lengths$gene_id
+
+  # subset expressed genes
+gene.length <- gene.length[names(gene.length) %in% names(all.genes)]
+
+gene.length[names(gene.length) %in% names(all.genes)] %>% nrow()
+```
+
+
+```{r}
+# create object with the mappings between gene names and GO-terms
+setwd("~/Documents/projects/ATAC_seq/data/")
+#annotation.raw <- read_table("~/Downloads/egg_nog_mapper_go_terms.txt", col_names = F, comment = "#")
+#annotation.raw <- read_table("ahyp_v3/GO_terms/MM_yhvn4wzw.emapper.annotations.t=csv", col_names = FALSE, na= "NA", comment = "#")
+annotation.raw <- read_csv("ahyp_v3/GO_terms/MM_yhvn4wzw.emapper.annotations.csv", col_names = TRUE, na= "NA")
+annotation.raw
+#annotation.raw <- annotation.raw %>% unite("combined", X8:X24, sep = " ", na.rm = TRUE)
+annotation.raw <- annotation.raw %>% mutate(GOs=gsub("-", NA, GOs)) %>% transmute(gene_id=query, go_terms=GOs)
+rownames(annotation.raw) <- annotation.raw$gene_id
+annotation.tmp <- annotation.raw %>% mutate(gene_id = gsub("\\..*", "", gene_id))
+
+# split GO terms rowwise into list of lists
+go_terms <- strsplit(annotation.tmp$go_terms,"\\,")
+names(go_terms) <- annotation.tmp$gene_id
+
+# concatenate all entries with the same name:
+head(go_terms)
+annotation.go <- split(unlist(go_terms, use.names = FALSE), rep(names(go_terms), lengths(go_terms)))
+head(annotation.go)
+
+# remove all entries with unannotated go terms
+annotation.go <- lapply(annotation.go, function(features, bad_features){
+  return(features[!features %in% bad_features])
+}, bad_features = NA)
+annotation.go <- annotation.go[lapply(annotation.go, length)>0]
+head(annotation.go)
+
+# remove all entries not in the expressed genes
+#annotation.go <- annotation.go[names(annotation.go) %in% rownames(###)]
+head(annotation.go)
+
+# remove any duplicated elements in the named list that were created by concatenating transcripts
+annotation.go <- sapply(annotation.go, unique)
+head(annotation.go)
+```
+
+
+```{r}
+# start by fitting probability weighting function
+
+pwf <- nullp(all.genes, bias.data = gene.length)
+head(gene.length)
+
+# wallenius approximation using go seq
+GO.wall <- goseq(pwf = pwf, gene2cat = annotation.go)
+median(GO.wall$numInCat)
+mean(GO.wall$numInCat)
+length(annotation.go)
+# 
+# significant overrepresented:
+# calculate FDR for overrepresented GO-terms, remove obsolete GO-terms
+significant_GOs <- GO.wall %>%
+  mutate(or_fdr = p.adjust(GO.wall$over_represented_pvalue, method="BH")) %>%
+  filter(or_fdr < 0.05) %>%
+  filter(term != "<NA>")
+# limit the number of characters in GO term description to enable printing
+significant_GOs$term_short <- ifelse(nchar(significant_GOs$term) > 50, paste0(strtrim(significant_GOs$term, 45), "..."), significant_GOs$term)
+# add category assignment
+significant_GOs$category <- as.factor(significant_GOs$category)
+significant_GOs <- significant_GOs %>%
+  arrange(or_fdr) %>%
+  mutate(category = factor(category, levels = category))
+
+
+write_csv(GO.wall, "~/Documents/projects/ATAC_seq/data/ahyp_v3/GO_terms/hybcau_GO_open_genes.csv")
+write_csv(significant_GOs, "~/Documents/projects/ATAC_seq/data/ahyp_v3/GO_terms/hybcau_sig_GO_all_genes.csv")
+
+head(all.genes)
+head(annotation.go)
+```
+
+
+```{r}
+# plot all three categories seperately:
+# only BP
+bp <- ggplot(data=significant_GOs %>% filter(ontology == "BP")) +
+  geom_col(aes(y=reorder(category, -or_fdr), x=numDEInCat, fill=or_fdr)) +
+  scale_y_discrete(labels = rev(significant_GOs[significant_GOs$ontology == "BP",]$term_short)) +
+  theme_classic() +
+  scale_fill_gradient(low="red2", high ="darkblue", limits=c(0,0.05)) +
+  labs(fill="False discory rate", x="Number DE-genes in category") +
+  theme(text = element_text(size=20),
+        axis.title.y = element_blank(),
+        plot.title.position = "plot")
+bp
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/GO_plot_BP_hybcau.png", width=15, height=10)
+
+
+
+subset <- significant_GOs[significant_GOs$ontology == "BP",]$term_short
+print(length(subset))
+print(subset)
+
+# only CC
+cc <- ggplot(data=significant_GOs %>% filter(ontology == "CC")) +
+  geom_col(aes(y=reorder(category, -or_fdr), x=numDEInCat, fill=or_fdr)) +
+  scale_y_discrete(labels = rev(significant_GOs[significant_GOs$ontology == "CC",]$term_short)) +
+  theme_classic() +
+  scale_fill_gradient(low="red2", high ="darkblue", limits=c(0,0.05)) +
+  labs(fill="False discory rate", x="Number DE-genes in category") +
+  theme(text = element_text(size=20),
+        axis.title.y = element_blank(),
+        plot.title.position = "plot")
+cc
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/GO_plot_CC_seedling.png", width=15, height=10)
+
+
+
+# only MF
+mf <- ggplot(data=significant_GOs %>% filter(ontology == "MF")) +
+  geom_col(aes(y=reorder(category, -or_fdr), x=numDEInCat, fill=or_fdr)) +
+  scale_y_discrete(labels = rev(significant_GOs[significant_GOs$ontology == "MF",]$term_short)) +
+  theme_classic() +
+  scale_fill_gradient(low="red2", high ="darkblue", limits=c(0,0.05)) +
+  labs(fill="False discory rate", x="Number DE-genes in category") +
+  theme(text = element_text(size=20),
+        axis.title.y = element_blank(),
+        plot.title.position = "plot")
+mf
+
+ggsave(filename = "~/Documents/projects/ATAC_seq/figures/ahypv3/GO_plot_MF_seedlin.png", width=15, height=10)
+```
+
+
+##########.   TISSUE SPECIFIC
+
+
+```{r}
+# separate by tissue
+# separate df of all ACRs into seedling an leaf tissue samples
+
+setwd("~/Documents/projects/ATAC_seq/data/")
+dfpeaks <- read.csv("ahyp_v3/peak_calling/ahypv3_w_sampleinfo_nowgs.csv", sep = ",")
+dfpeaks %>% distinct(species)
+
+dfleaf <- dfpeaks %>% filter(str_detect(tissue, "leaf"))
+dfseed <- dfpeaks %>% filter(str_detect(tissue, "seedling"))
+dfleaf %>% distinct(species)
+
+
+dfcau_l <- dfleaf %>% filter(str_detect(species, "caudatus"))
+dfcru_l <- dfleaf %>% filter(str_detect(species, "cruentus"))
+dfhyp_l <- dfleaf %>% filter(str_detect(species, "hypochondriacus"))
+dfhyb_l <- dfleaf %>% filter(str_detect(species, "hybridus"))
+dfqui_l <- dfleaf %>% filter(str_detect(species, "quitensis"))
+
+dfcau_s <- dfseed %>% filter(str_detect(species, "caudatus"))
+dfcru_s <- dfseed %>% filter(str_detect(species, "cruentus"))
+dfhyp_s <- dfseed %>% filter(str_detect(species, "hypochondriacus"))
+dfhyb_s <- dfseed %>% filter(str_detect(species, "hybridus"))
+dfqui_s <- dfseed %>% filter(str_detect(species, "quitensis"))
+
+
+suppressMessages({
+unique_ACRs <- function(dfunique) {
+
+species_tmp <- dfunique$species[[1]]
+detach("package:tidyverse")
+detach("package:tidyr")
+detach("package:lubridate")
+detach("package:purrr")
+
+library(GenomicRanges)
+library(GenomicFeatures)
+
+grref <- makeGRangesFromDataFrame(dfunique)
+grref <- reduce(grref)
+
+library(tidyverse)  
+
+library(Repitools)
+dfref2 <- annoGR2DF(grref)
+dfref2 <- dfref2 %>% mutate(species=species_tmp)
+return(dfref2)
+}
+})
+
+
+dfcau_l2 <- unique_ACRs(dfcau_l)
+dfcru_l2 <- unique_ACRs(dfcru_l)
+dfhyp_l2 <- unique_ACRs(dfhyp_l)
+dfhyb_l2 <- unique_ACRs(dfhyb_l)
+dfqui_l2 <- unique_ACRs(dfqui_l)
+
+dfred_actual_l <- rbind(dfcau_l2, dfcru_l2, dfhyp_l2, dfhyb_l2, dfqui_l2)
+
+dfcau_s2 <- unique_ACRs(dfcau_s)
+dfcru_s2 <- unique_ACRs(dfcru_s)
+dfhyp_s2 <- unique_ACRs(dfhyp_s)
+dfhyb_s2 <- unique_ACRs(dfhyb_s)
+dfqui_s2 <- unique_ACRs(dfqui_s)
+
+dfred_actual_s <- rbind(dfcau_s2, dfcru_s2, dfhyp_s2, dfhyb_s2, dfqui_s2)
+
+
+grleaf <- makeGRangesFromDataFrame(dfred_actual_l)
+grseed <- makeGRangesFromDataFrame(dfred_actual_s)
+findOverlaps(grleaf, grseed)
+# inner_join to only get OCRs that appear in only one 
+
+
+# list of all peaks
+  # overlap with leaf peaks
+    # make tissue column
+  # overlap with seedling peaks
+    # make tissue column
+  # merge based on position
+  # combine tissue columns into one (leaf, seedling, leaf/seedling)
+
+
+
+```
+
+
+```{r}
+
+```
